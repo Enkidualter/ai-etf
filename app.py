@@ -1,10 +1,9 @@
-"""ETF Investment Assistant - Professional UI"""
+"""ETF Investment Assistant"""
 from __future__ import annotations
 
 import json
 import os
 from dataclasses import dataclass
-from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Dict, Generator, Iterable, List, Optional, Tuple
 
@@ -29,125 +28,172 @@ DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
 
 AI_PROVIDERS: Dict[str, Dict[str, str]] = {
     "DeepSeek": {"base_url": "https://api.deepseek.com", "default_model": "deepseek-chat"},
-    "Gemini (Google)": {"base_url": "https://generativelanguage.googleapis.com/v1beta/openai", "default_model": "gemini-2.0-flash"},
+    "Gemini (Google)": {
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "default_model": "gemini-2.0-flash",
+    },
     "OpenAI": {"base_url": "https://api.openai.com/v1", "default_model": "gpt-4o-mini"},
     "Moonshot (Kimi)": {"base_url": "https://api.moonshot.cn/v1", "default_model": "moonshot-v1-8k"},
     "智谱 GLM": {"base_url": "https://open.bigmodel.cn/api/paas/v4", "default_model": "glm-4-flash"},
-    "硅基流动": {"base_url": "https://api.siliconflow.cn/v1", "default_model": "Qwen/Qwen2.5-7B-Instruct"},
+    "硅基流动": {
+        "base_url": "https://api.siliconflow.cn/v1",
+        "default_model": "Qwen/Qwen2.5-7B-Instruct",
+    },
 }
 
 # ── CSS ───────────────────────────────────────────────────────────────────────
-PAGE_CSS = """
-<style>
-#MainMenu, footer, header { visibility: hidden; }
-
-.stApp { background-color: #080d18; }
-
-[data-testid="stSidebar"] {
-    background-color: #0c1322;
-    border-right: 1px solid #162035;
+# Base CSS: dark-mode defaults as CSS custom properties + component classes.
+BASE_CSS = """<style>
+:root {
+  --bg-page:    #080d18;
+  --bg-sidebar: #0c1322;
+  --bg-card:    #0d1526;
+  --border-s:   #162035;
+  --border-c:   #1e2d4a;
+  --text-h:     #e8f0ff;
+  --text-p:     #c8d6e8;
+  --text-sec:   #94a3b8;
+  --text-m:     #475569;
+  --text-d:     #3d5166;
+  --accent:     #60a5fa;
+  --accent-btn: #1d4ed8;
 }
-[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
-    color: #64748b;
-    font-size: 0.8rem;
+
+#MainMenu, footer { visibility: hidden; }
+header { visibility: hidden; }
+/* Keep sidebar expand arrow visible even when header is hidden */
+[data-testid="collapsedControl"] { visibility: visible !important; }
+
+.stApp { background-color: var(--bg-page); }
+[data-testid="stSidebar"] {
+  background-color: var(--bg-sidebar);
+  border-right: 1px solid var(--border-s);
 }
 
 .stTabs [data-baseweb="tab-list"] {
-    gap: 0;
-    border-bottom: 1px solid #162035;
-    background: transparent;
-    padding: 0 2px;
+  gap: 0; border-bottom: 1px solid var(--border-s);
+  background: transparent; padding: 0 2px;
 }
 .stTabs [data-baseweb="tab"] {
-    background: transparent !important;
-    color: #475569;
-    height: 44px;
-    padding: 0 22px;
-    font-size: 0.88rem;
-    border-radius: 0;
-    border-bottom: 2px solid transparent;
-    margin-bottom: -1px;
+  background: transparent !important; color: var(--text-m);
+  height: 44px; padding: 0 22px; font-size: 0.88rem;
+  border-radius: 0; border-bottom: 2px solid transparent; margin-bottom: -1px;
 }
 .stTabs [aria-selected="true"] {
-    color: #60a5fa !important;
-    border-bottom-color: #60a5fa !important;
-    background: transparent !important;
+  color: var(--accent) !important;
+  border-bottom-color: var(--accent) !important;
+  background: transparent !important;
 }
-.stTabs [data-baseweb="tab-panel"] {
-    padding-top: 24px;
-}
+.stTabs [data-baseweb="tab-panel"] { padding-top: 24px; }
 
 div[data-testid="stButton"] > button {
-    background: #0d1526;
-    color: #94a3b8;
-    border: 1px solid #1e2d4a;
-    border-radius: 8px;
-    font-size: 0.88rem;
-    transition: all 0.18s;
+  background: var(--bg-card); color: var(--text-sec);
+  border: 1px solid var(--border-c); border-radius: 8px;
+  font-size: 0.88rem; transition: all 0.18s;
 }
 div[data-testid="stButton"] > button:hover {
-    border-color: #60a5fa;
-    color: #60a5fa;
-    background: #0d1526;
+  border-color: var(--accent); color: var(--accent); background: var(--bg-card);
 }
 div[data-testid="stButton"] > button[kind="primary"] {
-    background: linear-gradient(135deg, #1d4ed8, #2563eb);
-    color: #fff;
-    border: none;
-    font-weight: 600;
+  background: linear-gradient(135deg, var(--accent-btn), #2563eb);
+  color: #fff; border: none; font-weight: 600;
 }
 div[data-testid="stButton"] > button[kind="primary"]:hover {
-    opacity: 0.88;
-    border: none;
-    color: #fff;
+  opacity: 0.88; border: none; color: #fff;
 }
 
-[data-testid="stMetricValue"] {
-    font-size: 1.4rem;
-    font-weight: 700;
-    color: #e8f0ff;
-}
+[data-testid="stMetricValue"] { font-size: 1.4rem; font-weight: 700; color: var(--text-h); }
 [data-testid="stMetricLabel"] {
-    font-size: 0.72rem;
-    color: #475569;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+  font-size: 0.72rem; color: var(--text-m);
+  text-transform: uppercase; letter-spacing: 0.06em;
 }
 
 .stSelectbox > div > div {
-    background: #0d1526 !important;
-    border-color: #1e2d4a !important;
-    border-radius: 8px !important;
+  background: var(--bg-card) !important;
+  border-color: var(--border-c) !important; border-radius: 8px !important;
 }
 .stTextInput > div > div > input,
 [data-testid="stNumberInput"] input {
-    background: #0d1526 !important;
-    border-color: #1e2d4a !important;
-    border-radius: 8px !important;
-    color: #c8d6e8 !important;
+  background: var(--bg-card) !important; border-color: var(--border-c) !important;
+  border-radius: 8px !important; color: var(--text-p) !important;
 }
 
 .stAlert { border-radius: 8px !important; }
-hr { border-color: #162035 !important; opacity: 0.6; }
-.stCaption { color: #334155 !important; }
-
+hr { border-color: var(--border-s) !important; opacity: 0.6; }
 [data-testid="stDataFrame"] { border-radius: 10px; overflow: hidden; }
-[data-testid="stDataFrame"] table { background: #0d1526; }
-
 details > summary {
-    background: #0d1526 !important;
-    border: 1px solid #1e2d4a !important;
-    border-radius: 8px !important;
-    padding: 10px 16px !important;
-    color: #94a3b8 !important;
-    font-size: 0.88rem !important;
+  background: var(--bg-card) !important; border: 1px solid var(--border-c) !important;
+  border-radius: 8px !important; padding: 10px 16px !important;
+  color: var(--text-sec) !important; font-size: 0.88rem !important;
 }
+h1 { color: var(--text-h) !important; letter-spacing: -0.025em; }
+h2, h3 { color: var(--text-p) !important; }
+p { color: var(--text-sec); }
 
-h1 { color: #e8f0ff !important; letter-spacing: -0.025em; }
-h2, h3 { color: #c8d6e8 !important; }
-p { color: #94a3b8; }
-</style>
-"""
+/* ── Component classes ── */
+.etf-card {
+  position: relative; background: var(--bg-card);
+  border: 1px solid var(--border-c); border-radius: 12px;
+  padding: 18px 22px; margin-bottom: 10px;
+}
+.etf-card--hl { border-color: var(--accent-btn) !important; }
+.etf-card__name { font-size: 1.0rem; font-weight: 600; color: var(--text-h); }
+.etf-card__meta { color: var(--text-d); font-size: 0.8rem; margin-top: 3px; }
+.etf-card__badge {
+  position: absolute; top: 14px; right: 14px;
+  background: rgba(29,78,216,0.08); color: var(--accent);
+  padding: 2px 10px; border-radius: 4px; font-size: 0.7rem;
+  font-weight: 600; border: 1px solid rgba(29,78,216,0.25);
+}
+.etf-card__metrics {
+  display: grid; grid-template-columns: repeat(5, 1fr);
+  gap: 10px; border-top: 1px solid var(--border-s); padding-top: 12px;
+}
+.etf-card__label {
+  color: var(--text-d); font-size: 0.67rem;
+  text-transform: uppercase; letter-spacing: .06em; margin-bottom: 3px;
+}
+.etf-card__val { color: var(--text-p); font-size: 0.88rem; font-weight: 500; }
+.domain-card {
+  background: var(--bg-card); border: 1px solid var(--border-c);
+  border-radius: 12px; padding: 20px;
+}
+.info-box {
+  background: var(--bg-card); border: 1px solid var(--border-c);
+  border-radius: 10px; padding: 16px 20px; margin-bottom: 16px;
+}
+.term-card {
+  background: var(--bg-card); border: 1px solid var(--border-c);
+  border-radius: 8px; padding: 12px 16px; margin-bottom: 8px;
+}
+.ai-box {
+  background: var(--bg-card); border: 1px solid var(--border-c);
+  border-radius: 10px; padding: 20px 22px;
+}
+</style>"""
+
+# Light mode: override CSS variables only; all component classes stay the same.
+LIGHT_CSS = """<style>
+:root {
+  --bg-page:    #f8fafc;
+  --bg-sidebar: #f1f5f9;
+  --bg-card:    #ffffff;
+  --border-s:   #e2e8f0;
+  --border-c:   #cbd5e1;
+  --text-h:     #0f172a;
+  --text-p:     #1e293b;
+  --text-sec:   #334155;
+  --text-m:     #64748b;
+  --text-d:     #94a3b8;
+  --accent:     #2563eb;
+  --accent-btn: #1d4ed8;
+}
+.stApp { color: #1e293b; }
+[data-testid="stMarkdownContainer"] p { color: #334155; }
+.stSelectbox > div > div { color: #1e293b !important; }
+.stTextInput > div > div > input,
+[data-testid="stNumberInput"] input { color: #1e293b !important; }
+</style>"""
 
 HELP_TEXT = {
     "宽基": "宽基ETF通常跟踪沪深300、上证50、中证500这类大盘或综合指数，买的是一篮子股票，更适合作为长期配置的核心仓位。",
@@ -290,7 +336,9 @@ def load_or_create_profile(refresh: bool = False) -> pd.DataFrame:
     return df
 
 
-def fetch_prices_from_yfinance(codes: Iterable[str], progress_placeholder: Any = None) -> Tuple[pd.DataFrame, Optional[str]]:
+def fetch_prices_from_yfinance(
+    codes: Iterable[str], progress_placeholder: Any = None
+) -> Tuple[pd.DataFrame, Optional[str]]:
     try:
         import yfinance as yf
     except ImportError:
@@ -300,7 +348,7 @@ def fetch_prices_from_yfinance(codes: Iterable[str], progress_placeholder: Any =
     errors: List[str] = []
     for i, code in enumerate(code_list):
         if progress_placeholder is not None:
-            progress_placeholder.info(f"正在拉取 {i+1}/{len(code_list)}：{code} …")
+            progress_placeholder.info(f"正在拉取 {i + 1}/{len(code_list)}：{code} …")
         try:
             clean = str(code).split(".")[0]
             suffix = str(code).split(".")[-1].upper() if "." in str(code) else "SH"
@@ -327,7 +375,9 @@ def fetch_prices_from_yfinance(codes: Iterable[str], progress_placeholder: Any =
     return prices, ("; ".join(errors) if errors else None)
 
 
-def load_prices(codes: Iterable[str], refresh: bool = False, progress_placeholder: Any = None) -> Tuple[pd.DataFrame, Optional[str]]:
+def load_prices(
+    codes: Iterable[str], refresh: bool = False, progress_placeholder: Any = None
+) -> Tuple[pd.DataFrame, Optional[str]]:
     if PRICE_CACHE.exists() and not refresh:
         prices = pd.read_csv(PRICE_CACHE)
         prices["date"] = pd.to_datetime(prices["date"], errors="coerce")
@@ -469,8 +519,10 @@ def recommend_domains(user: UserProfile) -> List[DomainRecommendation]:
         scores["红利/低波"] += 16
     elif user.preference == "我想了解行业主题机会":
         scores["行业主题"] += 16
-    result = [DomainRecommendation(**{**base.__dict__, "match_score": round(scores[name], 1)})
-              for name, base in DOMAIN_LIBRARY.items()]
+    result = [
+        DomainRecommendation(**{**base.__dict__, "match_score": round(scores[name], 1)})
+        for name, base in DOMAIN_LIBRARY.items()
+    ]
     return sorted(result, key=lambda x: x.match_score, reverse=True)
 
 
@@ -494,7 +546,9 @@ def candidate_score(row: pd.Series, user: UserProfile, domain: DomainRecommendat
     return round(score, 1)
 
 
-def rank_candidates(df: pd.DataFrame, user: UserProfile, domain: DomainRecommendation) -> pd.DataFrame:
+def rank_candidates(
+    df: pd.DataFrame, user: UserProfile, domain: DomainRecommendation
+) -> pd.DataFrame:
     ranked = df.copy()
     ranked["candidate_score"] = ranked.apply(lambda r: candidate_score(r, user, domain), axis=1)
     ranked["domain_match"] = ranked.apply(lambda r: etf_matches_domain(r, domain), axis=1)
@@ -506,8 +560,10 @@ def risk_flags(row: pd.Series) -> List[str]:
     if row.get("age_years", 99) < 1: flags.append("成立时间较短，成立以来收益率参考价值有限。")
     if row.get("total_fee", 0) > 0.60: flags.append("费率偏高，长期持有成本会持续累积。")
     if row.get("scale_proxy", np.inf) < 1_000_000_000: flags.append("规模偏小，需关注流动性和清盘风险。")
-    if pd.notna(row.get("max_drawdown")) and row.get("max_drawdown") < -0.25: flags.append("近一年最大回撤较大，需确认能否承受。")
-    if pd.notna(row.get("volatility")) and row.get("volatility") > 0.25: flags.append("近一年波动率较高，不适合保守型核心仓位。")
+    if pd.notna(row.get("max_drawdown")) and row.get("max_drawdown") < -0.25:
+        flags.append("近一年最大回撤较大，需确认能否承受。")
+    if pd.notna(row.get("volatility")) and row.get("volatility") > 0.25:
+        flags.append("近一年波动率较高，不适合保守型核心仓位。")
     if not flags: flags.append("未发现突出单项风险，但仍需控制仓位。")
     return flags
 
@@ -523,7 +579,9 @@ def self_check_questions(row: pd.Series, domain: Optional[DomainRecommendation] 
     ]
 
 
-def build_fallback_narrative(user: UserProfile, domain: DomainRecommendation, candidates: pd.DataFrame) -> str:
+def build_fallback_narrative(
+    user: UserProfile, domain: DomainRecommendation, candidates: pd.DataFrame
+) -> str:
     names = "、".join(candidates["name"].head(3).tolist()) if not candidates.empty else "暂无合适候选"
     return (
         f'根据你的偏好，当前更适合先从"{domain.name}"看起。'
@@ -565,7 +623,7 @@ def stream_ai_analysis(
         yield "请先在左侧侧边栏填写 AI 服务商和 API Key。"
         return
 
-    context = {
+    context: Dict[str, Any] = {
         "etf_name": row.get("name"), "etf_code": row.get("code"),
         "category": row.get("category"), "quality_score": row.get("quality_score"),
         "total_fee_pct": row.get("total_fee"), "age_years": row.get("age_years"),
@@ -606,7 +664,10 @@ def stream_ai_analysis(
     try:
         with requests.post(
             f"{base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json; charset=utf-8"},
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json; charset=utf-8",
+            },
             data=body, stream=True, timeout=30,
         ) as resp:
             if not resp.ok:
@@ -646,12 +707,18 @@ def call_ai_narrative(payload: Dict[str, Any]) -> Tuple[Optional[str], Optional[
     try:
         body = json.dumps({
             "model": model,
-            "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
             "temperature": 0.3, "max_tokens": 500,
         }, ensure_ascii=False).encode("utf-8")
         resp = requests.post(
             f"{base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json; charset=utf-8"},
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json; charset=utf-8",
+            },
             data=body, timeout=20,
         )
         if not resp.ok:
@@ -663,19 +730,25 @@ def call_ai_narrative(payload: Dict[str, Any]) -> Tuple[Optional[str], Optional[
         return None, f"{provider} 调用失败：{exc}"
 
 
-def make_narrative(user: UserProfile, domain: DomainRecommendation, candidates: pd.DataFrame) -> Tuple[str, Optional[str]]:
+def make_narrative(
+    user: UserProfile, domain: DomainRecommendation, candidates: pd.DataFrame
+) -> Tuple[str, Optional[str]]:
     candidate_facts = [
-        {"code": r["code"], "name": r["name"], "quality_score": r["quality_score"],
-         "fee": r.get("total_fee"), "age_years": r.get("age_years"),
-         "max_drawdown": r.get("max_drawdown"), "volatility": r.get("volatility"),
-         "risk_flags": risk_flags(r)}
+        {
+            "code": r["code"], "name": r["name"], "quality_score": r["quality_score"],
+            "fee": r.get("total_fee"), "age_years": r.get("age_years"),
+            "max_drawdown": r.get("max_drawdown"), "volatility": r.get("volatility"),
+            "risk_flags": risk_flags(r),
+        }
         for _, r in candidates.head(3).iterrows()
     ]
     payload = {
         "user_profile": user.__dict__,
-        "domain": {"name": domain.name, "role": domain.role, "intro": domain.plain_intro,
-                   "suitable_for": domain.suitable_for, "return_source": domain.return_source,
-                   "key_risks": domain.key_risks, "common_mistake": domain.common_mistake},
+        "domain": {
+            "name": domain.name, "role": domain.role, "intro": domain.plain_intro,
+            "suitable_for": domain.suitable_for, "return_source": domain.return_source,
+            "key_risks": domain.key_risks, "common_mistake": domain.common_mistake,
+        },
         "candidates": candidate_facts,
         "guardrail": "仅用于学习和决策辅助，不构成投资建议。",
     }
@@ -696,12 +769,24 @@ def format_money(value: Any) -> str:
     return f"{v:.0f}"
 
 
+# ── Theme helper ──────────────────────────────────────────────────────────────
+def _chart_style() -> Dict[str, str]:
+    dark = st.session_state.get("dark_mode", True)
+    if dark:
+        return {"plot_bg": "#0d1526", "paper_bg": "#0d1526", "font": "#94a3b8", "grid": "#162035"}
+    return {"plot_bg": "#ffffff", "paper_bg": "#f8fafc", "font": "#475569", "grid": "#e2e8f0"}
+
+
 # ── UI primitives ─────────────────────────────────────────────────────────────
 def section_title(title: str, subtitle: str = "") -> None:
-    sub = f'<p style="color:#475569;margin:5px 0 0;font-size:0.85rem">{subtitle}</p>' if subtitle else ""
+    sub = (
+        f'<p style="color:var(--text-m);margin:5px 0 0;font-size:0.85rem">{subtitle}</p>'
+        if subtitle else ""
+    )
     st.markdown(
         f'<div style="margin-bottom:24px">'
-        f'<h2 style="margin:0;font-size:1.25rem;color:#e8f0ff;font-weight:700">{title}</h2>{sub}</div>',
+        f'<h2 style="margin:0;font-size:1.25rem;color:var(--text-h);font-weight:700">{title}</h2>'
+        f'{sub}</div>',
         unsafe_allow_html=True,
     )
 
@@ -709,38 +794,34 @@ def section_title(title: str, subtitle: str = "") -> None:
 def etf_card_html(row: pd.Series, highlight: bool = False) -> None:
     score = float(row.get("quality_score", 0))
     score_color = "#10b981" if score >= 70 else "#f59e0b" if score >= 50 else "#ef4444"
-    border = "#1d4ed8" if highlight else "#1e2d4a"
-    badge = ('<span style="position:absolute;top:14px;right:14px;background:#1d4ed814;'
-             'color:#60a5fa;padding:2px 10px;border-radius:4px;font-size:0.7rem;'
-             'font-weight:600;border:1px solid #1d4ed840">方向匹配</span>') if highlight else ""
+    extra_class = " etf-card--hl" if highlight else ""
+    badge = '<span class="etf-card__badge">方向匹配</span>' if highlight else ""
     fee = row.get("total_fee", float("nan"))
     dd = row.get("max_drawdown", float("nan"))
     vol = row.get("volatility", float("nan"))
     age = row.get("age_years", float("nan"))
     scale = row.get("scale_proxy", float("nan"))
-    dd_color = "#ef4444" if not pd.isna(dd) and dd < -0.2 else "#c8d6e8"
+    dd_color = "#ef4444" if not pd.isna(dd) and dd < -0.2 else "var(--text-p)"
 
-    def cell(label: str, val: str, color: str = "#c8d6e8") -> str:
-        return (f'<div><div style="color:#3d5166;font-size:0.67rem;text-transform:uppercase;'
-                f'letter-spacing:.06em;margin-bottom:3px">{label}</div>'
-                f'<div style="color:{color};font-size:0.88rem;font-weight:500">{val}</div></div>')
+    def cell(label: str, val: str, color: str = "var(--text-p)") -> str:
+        return (
+            f'<div><div class="etf-card__label">{label}</div>'
+            f'<div class="etf-card__val" style="color:{color}">{val}</div></div>'
+        )
 
     st.markdown(
-        f'<div style="position:relative;background:#0d1526;border:1px solid {border};'
-        f'border-radius:12px;padding:18px 22px;margin-bottom:10px">'
+        f'<div class="etf-card{extra_class}">'
         f'{badge}'
         f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">'
         f'<div>'
-        f'<div style="font-size:1.0rem;font-weight:600;color:#e8f0ff">{row.get("name","")}</div>'
-        f'<div style="color:#3d5166;font-size:0.8rem;margin-top:3px">'
-        f'{row.get("code","")} &nbsp;·&nbsp; {row.get("category","")}</div>'
+        f'<div class="etf-card__name">{row.get("name", "")}</div>'
+        f'<div class="etf-card__meta">{row.get("code", "")} &nbsp;·&nbsp; {row.get("category", "")}</div>'
         f'</div>'
         f'<div style="background:{score_color}18;color:{score_color};border:1px solid {score_color}40;'
         f'padding:5px 16px;border-radius:16px;font-weight:700;font-size:1.05rem;white-space:nowrap">'
         f'{score:.0f}<span style="font-size:0.6rem;opacity:0.7"> /100</span></div>'
         f'</div>'
-        f'<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;'
-        f'border-top:1px solid #162035;padding-top:12px">'
+        f'<div class="etf-card__metrics">'
         f'{cell("费率", f"{fee:.2f}%" if not pd.isna(fee) else "—")}'
         f'{cell("最大回撤", format_percent(dd), dd_color)}'
         f'{cell("年化波动", format_percent(vol))}'
@@ -754,17 +835,27 @@ def etf_card_html(row: pd.Series, highlight: bool = False) -> None:
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 def sidebar_controls() -> Tuple[bool, bool]:
     with st.sidebar:
+        # Theme toggle at the very top
+        st.toggle("深色模式", value=st.session_state.get("dark_mode", True), key="dark_mode")
+
         st.markdown(
-            '<div style="padding:8px 0 20px">'
-            '<div style="font-size:1.1rem;font-weight:700;color:#e8f0ff">ETF 投资助手</div>'
-            '<div style="font-size:0.75rem;color:#334155;margin-top:3px">仅用于学习，不构成投资建议</div>'
+            '<div style="padding:4px 0 20px">'
+            '<div style="font-size:1.1rem;font-weight:700;color:var(--text-h)">ETF 投资助手</div>'
+            '<div style="font-size:0.75rem;color:var(--text-d);margin-top:3px">仅用于学习，不构成投资建议</div>'
             '</div>',
             unsafe_allow_html=True,
         )
-        st.markdown('<div style="color:#475569;font-size:0.72rem;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">AI 解释引擎</div>', unsafe_allow_html=True)
+
+        st.markdown(
+            '<div style="color:var(--text-m);font-size:0.72rem;text-transform:uppercase;'
+            'letter-spacing:.08em;margin-bottom:8px">AI 解释引擎</div>',
+            unsafe_allow_html=True,
+        )
 
         provider_names = list(AI_PROVIDERS.keys())
-        selected_provider = st.selectbox("服务商", provider_names, index=0, key="ai_provider", label_visibility="collapsed")
+        selected_provider = st.selectbox(
+            "服务商", provider_names, index=0, key="ai_provider", label_visibility="collapsed"
+        )
         provider_cfg = AI_PROVIDERS[selected_provider]
 
         api_key_input = st.text_input(
@@ -788,7 +879,11 @@ def sidebar_controls() -> Tuple[bool, bool]:
             st.caption("未填写 API Key，解释使用规则模板")
 
         st.divider()
-        st.markdown('<div style="color:#475569;font-size:0.72rem;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">行情数据</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div style="color:var(--text-m);font-size:0.72rem;text-transform:uppercase;'
+            'letter-spacing:.08em;margin-bottom:8px">行情数据</div>',
+            unsafe_allow_html=True,
+        )
         refresh_prices = st.button("拉取最新行情", use_container_width=True)
         refresh_profile = st.button("重建静态缓存", use_container_width=True)
         st.caption("数据源：Yahoo Finance · 自动缓存")
@@ -819,8 +914,10 @@ def render_profile_form() -> UserProfile:
         amount = st.number_input("计划投入金额（元）", min_value=1000.0, value=50000.0, step=1000.0)
 
     risk_level = infer_risk_level(risk_answer, experience, horizon)
-    user = UserProfile(experience=experience, risk_level=risk_level, horizon=horizon,
-                       goal=goal, preference=preference, amount=amount)
+    user = UserProfile(
+        experience=experience, risk_level=risk_level, horizon=horizon,
+        goal=goal, preference=preference, amount=amount,
+    )
     st.session_state["user_profile"] = user
 
     risk_icon = {"低风险": "🟢", "中风险": "🟡", "高风险": "🔴"}.get(risk_level, "⚪")
@@ -829,7 +926,10 @@ def render_profile_form() -> UserProfile:
     else:
         driver = '你选了"我不确定"，系统按经验和期限保守处理'
     hint = "不太能接受 → 低 / 阶段性波动 → 中 / 愿意承受较大波动 → 高"
-    st.info(f"{risk_icon} **风险层级：{risk_level}**　　{driver}\n\n想改变结果，请修改上方【亏损感受】那道题。（{hint}）")
+    st.info(
+        f"{risk_icon} **风险层级：{risk_level}**　　{driver}\n\n"
+        f"想改变结果，请修改上方【亏损感受】那道题。（{hint}）"
+    )
     return user
 
 
@@ -843,12 +943,16 @@ def render_domain_recommendations(user: UserProfile) -> List[DomainRecommendatio
     for col, domain, color in zip(cols, domains, colors):
         with col:
             st.markdown(
-                f'<div style="background:#0d1526;border:1px solid #1e2d4a;border-radius:12px;padding:20px">'
-                f'<div style="color:{color};font-size:1.6rem;font-weight:800;margin-bottom:2px">{domain.match_score:.0f}</div>'
-                f'<div style="color:#94a3b8;font-size:0.7rem;text-transform:uppercase;letter-spacing:.08em">匹配分</div>'
-                f'<div style="color:#e8f0ff;font-weight:700;font-size:1.05rem;margin:10px 0 4px">{domain.name}</div>'
-                f'<div style="color:#475569;font-size:0.75rem;margin-bottom:8px">{domain.role}</div>'
-                f'<div style="color:#94a3b8;font-size:0.82rem;line-height:1.5">{domain.plain_intro}</div>'
+                f'<div class="domain-card">'
+                f'<div style="color:{color};font-size:1.6rem;font-weight:800;margin-bottom:2px">'
+                f'{domain.match_score:.0f}</div>'
+                f'<div style="color:var(--text-m);font-size:0.7rem;text-transform:uppercase;'
+                f'letter-spacing:.08em">匹配分</div>'
+                f'<div style="color:var(--text-h);font-weight:700;font-size:1.05rem;margin:10px 0 4px">'
+                f'{domain.name}</div>'
+                f'<div style="color:var(--text-m);font-size:0.75rem;margin-bottom:8px">{domain.role}</div>'
+                f'<div style="color:var(--text-sec);font-size:0.82rem;line-height:1.5">'
+                f'{domain.plain_intro}</div>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
@@ -875,7 +979,9 @@ def render_domain_recommendations(user: UserProfile) -> List[DomainRecommendatio
 
 
 # ── Tab: ETF候选 ──────────────────────────────────────────────────────────────
-def render_candidates(df: pd.DataFrame, user: UserProfile, domains: List[DomainRecommendation]) -> None:
+def render_candidates(
+    df: pd.DataFrame, user: UserProfile, domains: List[DomainRecommendation]
+) -> None:
     section_title("ETF 候选对比", "先选方向，再在同方向内比较规模、费率、回撤")
 
     domain_names = [d.name for d in domains]
@@ -905,14 +1011,18 @@ def render_candidates(df: pd.DataFrame, user: UserProfile, domains: List[DomainR
     st.markdown("<br>", unsafe_allow_html=True)
     with st.expander("查看完整对比数据"):
         st.dataframe(
-            candidates[["code", "name", "category", "quality_score", "candidate_score",
-                         "total_fee", "age_years", "max_drawdown", "volatility"]],
+            candidates[[
+                "code", "name", "category", "quality_score", "candidate_score",
+                "total_fee", "age_years", "max_drawdown", "volatility",
+            ]],
             use_container_width=True,
         )
 
 
 # ── Tab: 质量评估 ─────────────────────────────────────────────────────────────
-def render_quality_detail(df: pd.DataFrame, prices: pd.DataFrame, domains: List[DomainRecommendation]) -> None:
+def render_quality_detail(
+    df: pd.DataFrame, prices: pd.DataFrame, domains: List[DomainRecommendation]
+) -> None:
     section_title("单只 ETF 质量评估", "质量分不是买卖信号，只是系统性检查规模、费率、风险和数据完整性")
 
     selected = st.selectbox("选择 ETF", df["code"] + "  " + df["name"], label_visibility="collapsed")
@@ -920,7 +1030,6 @@ def render_quality_detail(df: pd.DataFrame, prices: pd.DataFrame, domains: List[
     row = df.loc[df["code"] == code].iloc[0]
     domain = domains[0] if domains else None
 
-    # Top metrics row
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("质量总分", f"{row['quality_score']:.1f} / 100")
     m2.metric("最大回撤", format_percent(row.get("max_drawdown")))
@@ -929,10 +1038,10 @@ def render_quality_detail(df: pd.DataFrame, prices: pd.DataFrame, domains: List[
 
     st.markdown("<br>", unsafe_allow_html=True)
 
+    cs = _chart_style()
     left_col, right_col = st.columns([1, 1], gap="large")
 
     with left_col:
-        # Score breakdown radar/bar chart
         score_df = pd.DataFrame({
             "维度": ["规模", "费率", "成立时间", "历史风险", "数据完整性"],
             "得分": [row["size_score"], row["fee_score"], row["age_score"], row["risk_score"], row["data_score"]],
@@ -941,28 +1050,32 @@ def render_quality_detail(df: pd.DataFrame, prices: pd.DataFrame, domains: List[
         fig = go.Figure()
         fig.add_trace(go.Bar(
             x=score_df["维度"], y=score_df["满分"],
-            marker_color="#1e2d4a", name="满分", showlegend=False,
+            marker_color=cs["grid"], name="满分", showlegend=False,
         ))
         fig.add_trace(go.Bar(
             x=score_df["维度"], y=score_df["得分"],
             marker_color="#3b82f6", name="得分", showlegend=False,
         ))
         fig.update_layout(
-            barmode="overlay", plot_bgcolor="#0d1526", paper_bgcolor="#0d1526",
-            font_color="#94a3b8", height=240, margin=dict(l=0, r=0, t=8, b=0),
-            xaxis=dict(gridcolor="#162035"), yaxis=dict(gridcolor="#162035"),
+            barmode="overlay",
+            plot_bgcolor=cs["plot_bg"], paper_bgcolor=cs["paper_bg"],
+            font_color=cs["font"], height=240,
+            margin=dict(l=0, r=0, t=8, b=0),
+            xaxis=dict(gridcolor=cs["grid"]),
+            yaxis=dict(gridcolor=cs["grid"]),
         )
         st.plotly_chart(fig, use_container_width=True)
 
     with right_col:
-        # Price chart
         price_df = prices[prices["code"] == code].copy() if not prices.empty else pd.DataFrame()
         if not price_df.empty:
             fig2 = px.line(price_df, x="date", y="close", color_discrete_sequence=["#3b82f6"])
             fig2.update_layout(
-                plot_bgcolor="#0d1526", paper_bgcolor="#0d1526",
-                font_color="#94a3b8", height=240, margin=dict(l=0, r=0, t=8, b=0),
-                xaxis=dict(gridcolor="#162035", title=""), yaxis=dict(gridcolor="#162035", title="收盘价"),
+                plot_bgcolor=cs["plot_bg"], paper_bgcolor=cs["paper_bg"],
+                font_color=cs["font"], height=240,
+                margin=dict(l=0, r=0, t=8, b=0),
+                xaxis=dict(gridcolor=cs["grid"], title=""),
+                yaxis=dict(gridcolor=cs["grid"], title="收盘价"),
             )
             fig2.update_traces(line_width=1.8)
             st.plotly_chart(fig2, use_container_width=True)
@@ -971,33 +1084,33 @@ def render_quality_detail(df: pd.DataFrame, prices: pd.DataFrame, domains: List[
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Risk flags
     flags = risk_flags(row)
     flag_html = "".join(
         f'<div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:7px">'
         f'<span style="color:#f59e0b;margin-top:1px">⚠</span>'
-        f'<span style="color:#94a3b8;font-size:0.87rem">{f}</span></div>'
+        f'<span style="color:var(--text-sec);font-size:0.87rem">{f}</span></div>'
         for f in flags
     )
     st.markdown(
-        f'<div style="background:#0d1526;border:1px solid #1e2d4a;border-radius:10px;padding:16px 20px;margin-bottom:16px">'
-        f'<div style="color:#c8d6e8;font-size:0.82rem;font-weight:600;margin-bottom:10px">风险提示</div>'
+        f'<div class="info-box">'
+        f'<div style="color:var(--text-p);font-size:0.82rem;font-weight:600;margin-bottom:10px">风险提示</div>'
         f'{flag_html}</div>',
         unsafe_allow_html=True,
     )
 
-    # AI analysis section
-    st.markdown(
-        '<div style="background:#0d1526;border:1px solid #1e2d4a;border-radius:10px;padding:20px 22px">',
-        unsafe_allow_html=True,
-    )
+    st.markdown('<div class="ai-box">', unsafe_allow_html=True)
     ai_col, note_col = st.columns([2, 4])
     user_profile = st.session_state.get("user_profile")
     with ai_col:
-        run_ai = st.button("🤖 一键 AI 深度分析", type="primary", key=f"ai_{code}", use_container_width=True)
+        run_ai = st.button(
+            "🤖 一键 AI 深度分析", type="primary", key=f"ai_{code}", use_container_width=True
+        )
     with note_col:
         if ai_available():
-            st.caption(f"使用 {st.session_state.get('ai_provider','AI')} · {st.session_state.get('ai_model','')} 流式生成")
+            st.caption(
+                f"使用 {st.session_state.get('ai_provider', 'AI')} · "
+                f"{st.session_state.get('ai_model', '')} 流式生成"
+            )
         else:
             st.caption("请先在左侧侧边栏填写 AI 服务商信息")
 
@@ -1011,11 +1124,12 @@ def render_quality_detail(df: pd.DataFrame, prices: pd.DataFrame, domains: List[
     else:
         questions = self_check_questions(row, domain)
         q_html = "".join(
-            f'<div style="color:#64748b;font-size:0.85rem;margin-bottom:6px">· {q}</div>'
+            f'<div style="color:var(--text-m);font-size:0.85rem;margin-bottom:6px">· {q}</div>'
             for q in questions
         )
         st.markdown(
-            f'<div style="color:#475569;font-size:0.8rem;margin-bottom:10px">点击按钮后 AI 将流式生成分析报告。以下是预设自查问题：</div>'
+            f'<div style="color:var(--text-m);font-size:0.8rem;margin-bottom:10px">'
+            f'点击按钮后 AI 将流式生成分析报告。以下是预设自查问题：</div>'
             f'{q_html}',
             unsafe_allow_html=True,
         )
@@ -1027,8 +1141,10 @@ def render_quality_detail(df: pd.DataFrame, prices: pd.DataFrame, domains: List[
 def render_universe_and_terms(df: pd.DataFrame) -> None:
     section_title("样本池 & 术语", "10 只上证 ETF 样本 · 数据来自 Excel + Yahoo Finance 缓存")
 
-    display = df[["code", "name", "category", "style", "quality_score", "total_fee",
-                  "age_years", "scale_proxy", "price_points"]].copy()
+    display = df[[
+        "code", "name", "category", "style", "quality_score",
+        "total_fee", "age_years", "scale_proxy", "price_points",
+    ]].copy()
     display["scale_proxy"] = display["scale_proxy"].apply(format_money)
     st.dataframe(display, use_container_width=True)
 
@@ -1038,10 +1154,11 @@ def render_universe_and_terms(df: pd.DataFrame) -> None:
     for idx, (term, desc) in enumerate(HELP_TEXT.items()):
         with cols[idx % 2]:
             st.markdown(
-                f'<div style="background:#0d1526;border:1px solid #1e2d4a;border-radius:8px;'
-                f'padding:12px 16px;margin-bottom:8px">'
-                f'<div style="color:#60a5fa;font-size:0.82rem;font-weight:600;margin-bottom:4px">{term}</div>'
-                f'<div style="color:#64748b;font-size:0.83rem;line-height:1.5">{desc}</div></div>',
+                f'<div class="term-card">'
+                f'<div style="color:var(--accent);font-size:0.82rem;font-weight:600;margin-bottom:4px">'
+                f'{term}</div>'
+                f'<div style="color:var(--text-m);font-size:0.83rem;line-height:1.5">{desc}</div>'
+                f'</div>',
                 unsafe_allow_html=True,
             )
 
@@ -1051,8 +1168,11 @@ def render_debug(profile: pd.DataFrame, prices: pd.DataFrame, df: pd.DataFrame) 
     section_title("调试信息", "开发用，后续可隐藏")
 
     def fmt_mtime(path: Path) -> str:
-        return (pd.Timestamp(path.stat().st_mtime, unit="s", tz="UTC")
-                .tz_convert(CST).strftime("%Y-%m-%d %H:%M:%S（北京时间）"))
+        return (
+            pd.Timestamp(path.stat().st_mtime, unit="s", tz="UTC")
+            .tz_convert(CST)
+            .strftime("%Y-%m-%d %H:%M:%S（北京时间）")
+        )
 
     c1, c2 = st.columns(2)
     with c1:
@@ -1087,7 +1207,9 @@ def render_debug(profile: pd.DataFrame, prices: pd.DataFrame, df: pd.DataFrame) 
         st.dataframe(profile, use_container_width=True)
     with st.expander("行情缓存（最近 20 条）"):
         if not prices.empty:
-            st.dataframe(prices.sort_values("date", ascending=False).head(20), use_container_width=True)
+            st.dataframe(
+                prices.sort_values("date", ascending=False).head(20), use_container_width=True
+            )
     with st.expander("综合打分表（完整）"):
         st.dataframe(df, use_container_width=True)
 
@@ -1095,9 +1217,14 @@ def render_debug(profile: pd.DataFrame, prices: pd.DataFrame, df: pd.DataFrame) 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main() -> None:
     st.set_page_config(page_title="ETF 投资助手", layout="wide", page_icon="📊")
-    st.markdown(PAGE_CSS, unsafe_allow_html=True)
 
+    # sidebar_controls reads/writes dark_mode in session_state via st.toggle
     refresh_prices, refresh_profile = sidebar_controls()
+
+    # Inject CSS after sidebar so dark_mode state is settled
+    st.markdown(BASE_CSS, unsafe_allow_html=True)
+    if not st.session_state.get("dark_mode", True):
+        st.markdown(LIGHT_CSS, unsafe_allow_html=True)
 
     profile = load_or_create_profile(refresh=refresh_profile)
 
@@ -1117,15 +1244,17 @@ def main() -> None:
 
     df = add_metrics(profile, prices)
 
-    default_user = UserProfile("我是新手", "低风险", "3年以上", "长期配置，慢慢积累", "我想先要一个稳一点的底座", 50000.0)
+    default_user = UserProfile(
+        "我是新手", "低风险", "3年以上", "长期配置，慢慢积累", "我想先要一个稳一点的底座", 50000.0
+    )
     user = st.session_state.get("user_profile", default_user)
     domains = recommend_domains(user)
 
-    # Header
     st.markdown(
         '<div style="padding:8px 0 28px">'
-        '<div style="font-size:1.9rem;font-weight:800;color:#e8f0ff;letter-spacing:-0.03em">ETF 投资助手</div>'
-        '<div style="color:#334155;font-size:0.88rem;margin-top:6px">'
+        '<div style="font-size:1.9rem;font-weight:800;color:var(--text-h);letter-spacing:-0.03em">'
+        'ETF 投资助手</div>'
+        '<div style="color:var(--text-d);font-size:0.88rem;margin-top:6px">'
         '基于规则评分 + AI 解释 · 仅用于学习和决策辅助，不构成投资建议</div></div>',
         unsafe_allow_html=True,
     )
