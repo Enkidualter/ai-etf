@@ -614,8 +614,10 @@ def call_deepseek(payload: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]
             data=body,
             timeout=20,
         )
-        response.raise_for_status()
-        data = response.json()
+        if not response.ok:
+            err_body = response.content.decode("utf-8", errors="replace")[:300]
+            return None, f"HTTP {response.status_code}: {err_body}"
+        data = json.loads(response.content.decode("utf-8"))
         text = data["choices"][0]["message"]["content"].strip()
         return text, None
     except Exception as exc:
