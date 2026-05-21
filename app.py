@@ -1,9 +1,4 @@
-"""ETF investment assistant demo v2.
-
-Run with:
-    streamlit run app.py --browser.gatherUsageStats false
-"""
-
+"""ETF Investment Assistant - Professional UI"""
 from __future__ import annotations
 
 import json
@@ -11,54 +6,148 @@ import os
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Generator, Iterable, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import requests
 import streamlit as st
 
-
+# ── Constants ─────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent
 EXCEL_PATH = BASE_DIR / "上证ETF(1).xlsx"
 CACHE_DIR = BASE_DIR / "data" / "cache"
 PROFILE_CACHE = CACHE_DIR / "etf_sample_profile.csv"
 PRICE_CACHE = CACHE_DIR / "etf_sample_prices.csv"
 SAMPLE_SIZE = 10
-
-DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
-DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash")
-
 CST = "Asia/Shanghai"
 
+DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
+DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+
 AI_PROVIDERS: Dict[str, Dict[str, str]] = {
-    "DeepSeek": {
-        "base_url": "https://api.deepseek.com",
-        "default_model": "deepseek-chat",
-    },
-    "OpenAI": {
-        "base_url": "https://api.openai.com/v1",
-        "default_model": "gpt-4o-mini",
-    },
-    "Moonshot (Kimi)": {
-        "base_url": "https://api.moonshot.cn/v1",
-        "default_model": "moonshot-v1-8k",
-    },
-    "智谱 GLM": {
-        "base_url": "https://open.bigmodel.cn/api/paas/v4",
-        "default_model": "glm-4-flash",
-    },
-    "硅基流动 SiliconFlow": {
-        "base_url": "https://api.siliconflow.cn/v1",
-        "default_model": "Qwen/Qwen2.5-7B-Instruct",
-    },
-    "Gemini (Google)": {
-        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
-        "default_model": "gemini-2.0-flash",
-    },
+    "DeepSeek": {"base_url": "https://api.deepseek.com", "default_model": "deepseek-chat"},
+    "Gemini (Google)": {"base_url": "https://generativelanguage.googleapis.com/v1beta/openai", "default_model": "gemini-2.0-flash"},
+    "OpenAI": {"base_url": "https://api.openai.com/v1", "default_model": "gpt-4o-mini"},
+    "Moonshot (Kimi)": {"base_url": "https://api.moonshot.cn/v1", "default_model": "moonshot-v1-8k"},
+    "智谱 GLM": {"base_url": "https://open.bigmodel.cn/api/paas/v4", "default_model": "glm-4-flash"},
+    "硅基流动": {"base_url": "https://api.siliconflow.cn/v1", "default_model": "Qwen/Qwen2.5-7B-Instruct"},
 }
 
+# ── CSS ───────────────────────────────────────────────────────────────────────
+PAGE_CSS = """
+<style>
+#MainMenu, footer, header { visibility: hidden; }
+
+.stApp { background-color: #080d18; }
+
+[data-testid="stSidebar"] {
+    background-color: #0c1322;
+    border-right: 1px solid #162035;
+}
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
+    color: #64748b;
+    font-size: 0.8rem;
+}
+
+.stTabs [data-baseweb="tab-list"] {
+    gap: 0;
+    border-bottom: 1px solid #162035;
+    background: transparent;
+    padding: 0 2px;
+}
+.stTabs [data-baseweb="tab"] {
+    background: transparent !important;
+    color: #475569;
+    height: 44px;
+    padding: 0 22px;
+    font-size: 0.88rem;
+    border-radius: 0;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+}
+.stTabs [aria-selected="true"] {
+    color: #60a5fa !important;
+    border-bottom-color: #60a5fa !important;
+    background: transparent !important;
+}
+.stTabs [data-baseweb="tab-panel"] {
+    padding-top: 24px;
+}
+
+div[data-testid="stButton"] > button {
+    background: #0d1526;
+    color: #94a3b8;
+    border: 1px solid #1e2d4a;
+    border-radius: 8px;
+    font-size: 0.88rem;
+    transition: all 0.18s;
+}
+div[data-testid="stButton"] > button:hover {
+    border-color: #60a5fa;
+    color: #60a5fa;
+    background: #0d1526;
+}
+div[data-testid="stButton"] > button[kind="primary"] {
+    background: linear-gradient(135deg, #1d4ed8, #2563eb);
+    color: #fff;
+    border: none;
+    font-weight: 600;
+}
+div[data-testid="stButton"] > button[kind="primary"]:hover {
+    opacity: 0.88;
+    border: none;
+    color: #fff;
+}
+
+[data-testid="stMetricValue"] {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #e8f0ff;
+}
+[data-testid="stMetricLabel"] {
+    font-size: 0.72rem;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.stSelectbox > div > div {
+    background: #0d1526 !important;
+    border-color: #1e2d4a !important;
+    border-radius: 8px !important;
+}
+.stTextInput > div > div > input,
+[data-testid="stNumberInput"] input {
+    background: #0d1526 !important;
+    border-color: #1e2d4a !important;
+    border-radius: 8px !important;
+    color: #c8d6e8 !important;
+}
+
+.stAlert { border-radius: 8px !important; }
+hr { border-color: #162035 !important; opacity: 0.6; }
+.stCaption { color: #334155 !important; }
+
+[data-testid="stDataFrame"] { border-radius: 10px; overflow: hidden; }
+[data-testid="stDataFrame"] table { background: #0d1526; }
+
+details > summary {
+    background: #0d1526 !important;
+    border: 1px solid #1e2d4a !important;
+    border-radius: 8px !important;
+    padding: 10px 16px !important;
+    color: #94a3b8 !important;
+    font-size: 0.88rem !important;
+}
+
+h1 { color: #e8f0ff !important; letter-spacing: -0.025em; }
+h2, h3 { color: #c8d6e8 !important; }
+p { color: #94a3b8; }
+</style>
+"""
 
 HELP_TEXT = {
     "宽基": "宽基ETF通常跟踪沪深300、上证50、中证500这类大盘或综合指数，买的是一篮子股票，更适合作为长期配置的核心仓位。",
@@ -72,6 +161,7 @@ HELP_TEXT = {
 }
 
 
+# ── Data classes ──────────────────────────────────────────────────────────────
 @dataclass
 class UserProfile:
     experience: str
@@ -98,21 +188,16 @@ class DomainRecommendation:
 
 DOMAIN_LIBRARY: Dict[str, DomainRecommendation] = {
     "宽基核心": DomainRecommendation(
-        name="宽基核心",
-        match_score=0,
-        role="核心仓位",
+        name="宽基核心", match_score=0, role="核心仓位",
         plain_intro="先用一篮子代表性股票打底，不把胜负押在单一行业上。",
         suitable_for="适合新手、长期配置、希望先把组合底座搭稳的投资者。",
         return_source="主要来自市场整体增长、指数成分股盈利改善和估值修复。",
         key_risks="市场整体下跌时也会回撤，不能理解成保本工具。",
         common_mistake="只看短期涨幅排名，忽略宽基更适合长期、分批和纪律化持有。",
-        category_keywords=("宽基", "核心"),
-        risk_hint="适合作为组合底座，但仍要控制买入节奏和总仓位。",
+        category_keywords=("宽基", "核心"), risk_hint="适合作为组合底座，但仍要控制买入节奏和总仓位。",
     ),
     "红利/低波": DomainRecommendation(
-        name="红利/低波",
-        match_score=0,
-        role="稳健核心或防守仓位",
+        name="红利/低波", match_score=0, role="稳健核心或防守仓位",
         plain_intro="更关注分红、现金流和相对稳健的公司，目标是少一点刺激，多一点纪律。",
         suitable_for="适合不喜欢大起大落、希望降低组合波动的新手或保守型投资者。",
         return_source="主要来自股息、企业稳定盈利和低估值修复。",
@@ -122,9 +207,7 @@ DOMAIN_LIBRARY: Dict[str, DomainRecommendation] = {
         risk_hint="当前样本池红利ETF不足，demo会用价值/金融类作为近似候选展示。",
     ),
     "行业主题": DomainRecommendation(
-        name="行业主题",
-        match_score=0,
-        role="卫星仓位",
+        name="行业主题", match_score=0, role="卫星仓位",
         plain_intro="集中投向某个行业或主题，适合表达观点，但不适合新手一上来重仓。",
         suitable_for="适合能承受较大波动、理解行业周期、愿意把它控制在小比例仓位的投资者。",
         return_source="主要来自行业景气度上行、政策催化、估值扩张或盈利改善。",
@@ -136,22 +219,17 @@ DOMAIN_LIBRARY: Dict[str, DomainRecommendation] = {
 }
 
 
+# ── Data loading ──────────────────────────────────────────────────────────────
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     mapping = {
-        "证券代码": "code",
-        "证券名称": "name",
-        "基金类型": "fund_type",
+        "证券代码": "code", "证券名称": "name", "基金类型": "fund_type",
         "单位净值\n[交易日期] 最新[单位]元": "nav",
         "基金份额\n[交易日期] 最新\n[单位]  份": "shares",
         "投资风格\n[年度] 2023\n[报告期] 中报": "style",
-        "基金管理人": "manager",
-        "基金托管人": "custodian",
-        "管理费率[单位]%": "management_fee",
-        "托管费率[单位]%": "custody_fee",
-        "基金经理(现任)": "fund_manager",
-        "基金存续期[单位]年": "duration_years",
-        "基金成立日": "inception_date",
-        "基金到期日": "maturity_date",
+        "基金管理人": "manager", "基金托管人": "custodian",
+        "管理费率[单位]%": "management_fee", "托管费率[单位]%": "custody_fee",
+        "基金经理(现任)": "fund_manager", "基金存续期[单位]年": "duration_years",
+        "基金成立日": "inception_date", "基金到期日": "maturity_date",
     }
     return df.rename(columns=mapping)
 
@@ -163,16 +241,14 @@ def parse_inception(value: Any) -> Optional[pd.Timestamp]:
     if len(text) != 8:
         return None
     parsed = pd.to_datetime(text, format="%Y%m%d", errors="coerce")
-    if pd.isna(parsed):
-        return None
-    return parsed
+    return None if pd.isna(parsed) else parsed
 
 
 def classify_etf(row: pd.Series) -> str:
     text = f"{row.get('name', '')} {row.get('style', '')}"
-    if any(key in text for key in ["沪深300", "上证50", "中证500", "国企"]):
+    if any(k in text for k in ["沪深300", "上证50", "中证500", "国企"]):
         return "宽基/核心"
-    if any(key in text for key in ["消费", "金融"]):
+    if any(k in text for k in ["消费", "金融"]):
         return "行业/主题"
     if "成长" in text:
         return "成长风格"
@@ -184,28 +260,17 @@ def classify_etf(row: pd.Series) -> str:
 def load_profile_from_excel() -> pd.DataFrame:
     df = pd.read_excel(EXCEL_PATH).head(SAMPLE_SIZE)
     df = normalize_columns(df)
-    keep = [
-        "code",
-        "name",
-        "fund_type",
-        "nav",
-        "shares",
-        "style",
-        "manager",
-        "custodian",
-        "management_fee",
-        "custody_fee",
-        "fund_manager",
-        "inception_date",
-    ]
+    keep = ["code", "name", "fund_type", "nav", "shares", "style", "manager",
+            "custodian", "management_fee", "custody_fee", "fund_manager", "inception_date"]
     df = df[keep].copy()
     df["inception"] = df["inception_date"].apply(parse_inception)
     df["age_years"] = df["inception"].apply(
         lambda x: np.nan if x is None else max((pd.Timestamp.today() - x).days / 365.25, 0)
     )
-    df["total_fee"] = pd.to_numeric(df["management_fee"], errors="coerce").fillna(0) + pd.to_numeric(
-        df["custody_fee"], errors="coerce"
-    ).fillna(0)
+    df["total_fee"] = (
+        pd.to_numeric(df["management_fee"], errors="coerce").fillna(0)
+        + pd.to_numeric(df["custody_fee"], errors="coerce").fillna(0)
+    )
     df["scale_proxy"] = pd.to_numeric(df["nav"], errors="coerce") * pd.to_numeric(df["shares"], errors="coerce")
     df["category"] = df.apply(classify_etf, axis=1)
     return df
@@ -225,20 +290,14 @@ def load_or_create_profile(refresh: bool = False) -> pd.DataFrame:
     return df
 
 
-def fetch_prices_from_yfinance(
-    codes: Iterable[str],
-    progress_placeholder: Any = None,
-) -> Tuple[pd.DataFrame, Optional[str]]:
+def fetch_prices_from_yfinance(codes: Iterable[str], progress_placeholder: Any = None) -> Tuple[pd.DataFrame, Optional[str]]:
     try:
         import yfinance as yf
     except ImportError:
-        return pd.DataFrame(), "未安装 yfinance，请执行 pip install yfinance。"
-
+        return pd.DataFrame(), "未安装 yfinance。"
     code_list = list(codes)
     frames: List[pd.DataFrame] = []
     errors: List[str] = []
-    successes: List[str] = []
-
     for i, code in enumerate(code_list):
         if progress_placeholder is not None:
             progress_placeholder.info(f"正在拉取 {i+1}/{len(code_list)}：{code} …")
@@ -248,7 +307,7 @@ def fetch_prices_from_yfinance(
             yf_code = clean + (".SS" if suffix == "SH" else ".SZ")
             hist = yf.Ticker(yf_code).history(period="1y")
             if hist.empty:
-                errors.append(f"{code} → {yf_code}：无数据")
+                errors.append(f"{code}: 无数据")
                 continue
             frame = pd.DataFrame({
                 "code": code,
@@ -256,30 +315,19 @@ def fetch_prices_from_yfinance(
                 "close": hist["Close"].values,
             }).dropna(subset=["date", "close"]).sort_values("date")
             frames.append(frame)
-            successes.append(f"{code}（{len(frame)}条）")
         except Exception as e:
-            errors.append(f"{code}：{type(e).__name__}: {e}")
+            errors.append(f"{code}: {type(e).__name__}")
             continue
-
     if not frames:
-        detail = "\n".join(errors)
-        return pd.DataFrame(), f"所有代码拉取失败：\n{detail}"
-
+        return pd.DataFrame(), f"拉取失败：{'; '.join(errors[:3])}"
     prices = pd.concat(frames, ignore_index=True)
     prices["fetch_time"] = pd.Timestamp.now(tz="UTC").tz_convert(CST).strftime("%Y-%m-%d %H:%M:%S")
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     prices.to_csv(PRICE_CACHE, index=False, encoding="utf-8-sig")
-    summary = f"成功：{', '.join(successes)}"
-    if errors:
-        summary += f"\n失败：{', '.join(errors)}"
-    return prices, None if not errors else summary
+    return prices, ("; ".join(errors) if errors else None)
 
 
-def load_prices(
-    codes: Iterable[str],
-    refresh: bool = False,
-    progress_placeholder: Any = None,
-) -> Tuple[pd.DataFrame, Optional[str]]:
+def load_prices(codes: Iterable[str], refresh: bool = False, progress_placeholder: Any = None) -> Tuple[pd.DataFrame, Optional[str]]:
     if PRICE_CACHE.exists() and not refresh:
         prices = pd.read_csv(PRICE_CACHE)
         prices["date"] = pd.to_datetime(prices["date"], errors="coerce")
@@ -287,26 +335,22 @@ def load_prices(
     return fetch_prices_from_yfinance(codes, progress_placeholder=progress_placeholder)
 
 
+# ── Metrics & scoring ─────────────────────────────────────────────────────────
 def max_drawdown(close: pd.Series) -> float:
     close = close.dropna()
     if close.empty:
         return np.nan
-    drawdown = close / close.cummax() - 1
-    return float(drawdown.min())
+    return float((close / close.cummax() - 1).min())
 
 
 def annual_volatility(close: pd.Series) -> float:
-    returns = close.pct_change().dropna()
-    if returns.empty:
-        return np.nan
-    return float(returns.std() * np.sqrt(252))
+    r = close.pct_change().dropna()
+    return np.nan if r.empty else float(r.std() * np.sqrt(252))
 
 
 def one_year_return(close: pd.Series) -> float:
     close = close.dropna()
-    if len(close) < 2:
-        return np.nan
-    return float(close.iloc[-1] / close.iloc[0] - 1)
+    return np.nan if len(close) < 2 else float(close.iloc[-1] / close.iloc[0] - 1)
 
 
 def add_metrics(profile: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
@@ -314,87 +358,61 @@ def add_metrics(profile: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
     metric_rows = []
     for code in df["code"]:
         close = prices.loc[prices["code"] == code, "close"] if not prices.empty else pd.Series(dtype=float)
-        metric_rows.append(
-            {
-                "code": code,
-                "max_drawdown": max_drawdown(close),
-                "volatility": annual_volatility(close),
-                "one_year_return": one_year_return(close),
-                "price_points": int(close.dropna().shape[0]),
-            }
-        )
+        metric_rows.append({
+            "code": code,
+            "max_drawdown": max_drawdown(close),
+            "volatility": annual_volatility(close),
+            "one_year_return": one_year_return(close),
+            "price_points": int(close.dropna().shape[0]),
+        })
     df = df.merge(pd.DataFrame(metric_rows), on="code", how="left")
     scores = pd.DataFrame([score_etf(row) for _, row in df.iterrows()])
     return pd.concat([df.reset_index(drop=True), scores], axis=1)
 
 
 def score_size(scale: float) -> float:
-    if pd.isna(scale):
-        return 8
-    if scale >= 50_000_000_000:
-        return 25
-    if scale >= 10_000_000_000:
-        return 22
-    if scale >= 1_000_000_000:
-        return 16
-    if scale >= 100_000_000:
-        return 9
+    if pd.isna(scale): return 8
+    if scale >= 50_000_000_000: return 25
+    if scale >= 10_000_000_000: return 22
+    if scale >= 1_000_000_000: return 16
+    if scale >= 100_000_000: return 9
     return 4
 
 
 def score_fee(total_fee: float) -> float:
-    if pd.isna(total_fee):
-        return 8
-    if total_fee <= 0.20:
-        return 20
-    if total_fee <= 0.30:
-        return 17
-    if total_fee <= 0.60:
-        return 12
-    if total_fee <= 1.00:
-        return 7
+    if pd.isna(total_fee): return 8
+    if total_fee <= 0.20: return 20
+    if total_fee <= 0.30: return 17
+    if total_fee <= 0.60: return 12
+    if total_fee <= 1.00: return 7
     return 3
 
 
 def score_age(age: float) -> float:
-    if pd.isna(age):
-        return 6
-    if age >= 5:
-        return 20
-    if age >= 3:
-        return 16
-    if age >= 1:
-        return 10
-    if age >= 0.5:
-        return 6
+    if pd.isna(age): return 6
+    if age >= 5: return 20
+    if age >= 3: return 16
+    if age >= 1: return 10
+    if age >= 0.5: return 6
     return 3
 
 
 def score_risk(drawdown: float, volatility: float) -> float:
-    if pd.isna(drawdown) or pd.isna(volatility):
-        return 8
+    if pd.isna(drawdown) or pd.isna(volatility): return 8
     score = 20
-    if drawdown < -0.35:
-        score -= 8
-    elif drawdown < -0.25:
-        score -= 5
-    elif drawdown < -0.15:
-        score -= 2
-    if volatility > 0.35:
-        score -= 7
-    elif volatility > 0.25:
-        score -= 4
-    elif volatility > 0.18:
-        score -= 2
+    if drawdown < -0.35: score -= 8
+    elif drawdown < -0.25: score -= 5
+    elif drawdown < -0.15: score -= 2
+    if volatility > 0.35: score -= 7
+    elif volatility > 0.25: score -= 4
+    elif volatility > 0.18: score -= 2
     return max(score, 3)
 
 
 def score_data(points: int, static_missing: int) -> float:
     score = 15
-    if points < 120:
-        score -= 6
-    elif points < 220:
-        score -= 3
+    if points < 120: score -= 6
+    elif points < 220: score -= 3
     score -= min(static_missing * 2, 6)
     return max(score, 3)
 
@@ -409,19 +427,15 @@ def score_etf(row: pd.Series) -> Dict[str, float]:
     data = score_data(int(row.get("price_points", 0) or 0), static_missing)
     return {
         "quality_score": round(size + fee + age + risk + data, 1),
-        "size_score": size,
-        "fee_score": fee,
-        "age_score": age,
-        "risk_score": risk,
-        "data_score": data,
+        "size_score": size, "fee_score": fee, "age_score": age,
+        "risk_score": risk, "data_score": data,
     }
 
 
+# ── Recommendation logic ──────────────────────────────────────────────────────
 def infer_risk_level(risk_answer: str, experience: str, horizon: str) -> str:
     if "不确定" in risk_answer:
-        if experience == "我是新手" or horizon == "1年以内":
-            return "低风险"
-        return "中风险"
+        return "低风险" if (experience == "我是新手" or horizon == "1年以内") else "中风险"
     if "不太能接受" in risk_answer:
         return "低风险"
     if "阶段性波动" in risk_answer:
@@ -431,70 +445,48 @@ def infer_risk_level(risk_answer: str, experience: str, horizon: str) -> str:
 
 def recommend_domains(user: UserProfile) -> List[DomainRecommendation]:
     scores = {"宽基核心": 50.0, "红利/低波": 45.0, "行业主题": 30.0}
-
     if user.risk_level == "低风险":
-        scores["红利/低波"] += 24
-        scores["宽基核心"] += 18
-        scores["行业主题"] -= 20
+        scores["红利/低波"] += 24; scores["宽基核心"] += 18; scores["行业主题"] -= 20
     elif user.risk_level == "中风险":
-        scores["宽基核心"] += 20
-        scores["红利/低波"] += 10
-        scores["行业主题"] += 4
+        scores["宽基核心"] += 20; scores["红利/低波"] += 10; scores["行业主题"] += 4
     else:
-        scores["行业主题"] += 24
-        scores["宽基核心"] += 10
-
+        scores["行业主题"] += 24; scores["宽基核心"] += 10
     if user.experience == "我是新手":
-        scores["宽基核心"] += 14
-        scores["红利/低波"] += 8
-        scores["行业主题"] -= 8
+        scores["宽基核心"] += 14; scores["红利/低波"] += 8; scores["行业主题"] -= 8
     if user.horizon == "1年以内":
-        scores["红利/低波"] += 12
-        scores["行业主题"] -= 12
+        scores["红利/低波"] += 12; scores["行业主题"] -= 12
     elif user.horizon == "3年以上":
-        scores["宽基核心"] += 10
-        scores["行业主题"] += 3
-
+        scores["宽基核心"] += 10; scores["行业主题"] += 3
     if user.goal == "希望稳一点，少一些大起大落":
-        scores["红利/低波"] += 20
-        scores["行业主题"] -= 10
+        scores["红利/低波"] += 20; scores["行业主题"] -= 10
     elif user.goal == "长期配置，慢慢积累":
         scores["宽基核心"] += 20
     elif user.goal == "想抓住某些行业机会":
         scores["行业主题"] += 20
-
     if user.preference == "我想先要一个稳一点的底座":
         scores["宽基核心"] += 16
     elif user.preference == "我更关注分红和稳健":
         scores["红利/低波"] += 16
     elif user.preference == "我想了解行业主题机会":
         scores["行业主题"] += 16
-
-    result = []
-    for name, base in DOMAIN_LIBRARY.items():
-        item = DomainRecommendation(**{**base.__dict__, "match_score": round(scores[name], 1)})
-        result.append(item)
-    return sorted(result, key=lambda item: item.match_score, reverse=True)
+    result = [DomainRecommendation(**{**base.__dict__, "match_score": round(scores[name], 1)})
+              for name, base in DOMAIN_LIBRARY.items()]
+    return sorted(result, key=lambda x: x.match_score, reverse=True)
 
 
 def etf_matches_domain(row: pd.Series, domain: DomainRecommendation) -> bool:
     text = f"{row.get('name', '')} {row.get('style', '')} {row.get('category', '')}"
-    return any(keyword in text for keyword in domain.category_keywords)
+    return any(k in text for k in domain.category_keywords)
 
 
 def candidate_score(row: pd.Series, user: UserProfile, domain: DomainRecommendation) -> float:
     score = float(row["quality_score"])
-    if etf_matches_domain(row, domain):
-        score += 18
+    if etf_matches_domain(row, domain): score += 18
     if user.risk_level == "低风险":
-        if row.get("total_fee", 99) <= 0.20:
-            score += 8
-        if pd.notna(row.get("max_drawdown")) and row.get("max_drawdown") < -0.25:
-            score -= 12
-        if pd.notna(row.get("volatility")) and row.get("volatility") > 0.25:
-            score -= 10
-        if "行业" in str(row.get("category", "")):
-            score -= 6
+        if row.get("total_fee", 99) <= 0.20: score += 8
+        if pd.notna(row.get("max_drawdown")) and row.get("max_drawdown") < -0.25: score -= 12
+        if pd.notna(row.get("volatility")) and row.get("volatility") > 0.25: score -= 10
+        if "行业" in str(row.get("category", "")): score -= 6
     elif user.risk_level == "高风险" and "行业" in str(row.get("category", "")):
         score += 5
     if user.horizon == "1年以内" and pd.notna(row.get("volatility")) and row.get("volatility") > 0.25:
@@ -504,33 +496,26 @@ def candidate_score(row: pd.Series, user: UserProfile, domain: DomainRecommendat
 
 def rank_candidates(df: pd.DataFrame, user: UserProfile, domain: DomainRecommendation) -> pd.DataFrame:
     ranked = df.copy()
-    ranked["candidate_score"] = ranked.apply(lambda row: candidate_score(row, user, domain), axis=1)
-    ranked["domain_match"] = ranked.apply(lambda row: etf_matches_domain(row, domain), axis=1)
-    ranked = ranked.sort_values(["domain_match", "candidate_score"], ascending=[False, False])
-    return ranked.head(3)
+    ranked["candidate_score"] = ranked.apply(lambda r: candidate_score(r, user, domain), axis=1)
+    ranked["domain_match"] = ranked.apply(lambda r: etf_matches_domain(r, domain), axis=1)
+    return ranked.sort_values(["domain_match", "candidate_score"], ascending=[False, False]).head(3)
 
 
 def risk_flags(row: pd.Series) -> List[str]:
     flags = []
-    if row.get("age_years", 99) < 1:
-        flags.append("成立时间较短，成立以来收益率参考价值有限。")
-    if row.get("total_fee", 0) > 0.60:
-        flags.append("费率相对偏高，长期持有时成本会持续累积。")
-    if row.get("scale_proxy", np.inf) < 1_000_000_000:
-        flags.append("规模代理偏小，需关注流动性和清盘风险。")
-    if pd.notna(row.get("max_drawdown")) and row.get("max_drawdown") < -0.25:
-        flags.append("近一年最大回撤较大，需要先确认能否承受波动。")
-    if pd.notna(row.get("volatility")) and row.get("volatility") > 0.25:
-        flags.append("近一年波动率较高，不适合作为保守型核心仓位。")
-    if not flags:
-        flags.append("未发现特别突出的单项风险，但仍需结合自身期限和仓位控制。")
+    if row.get("age_years", 99) < 1: flags.append("成立时间较短，成立以来收益率参考价值有限。")
+    if row.get("total_fee", 0) > 0.60: flags.append("费率偏高，长期持有成本会持续累积。")
+    if row.get("scale_proxy", np.inf) < 1_000_000_000: flags.append("规模偏小，需关注流动性和清盘风险。")
+    if pd.notna(row.get("max_drawdown")) and row.get("max_drawdown") < -0.25: flags.append("近一年最大回撤较大，需确认能否承受。")
+    if pd.notna(row.get("volatility")) and row.get("volatility") > 0.25: flags.append("近一年波动率较高，不适合保守型核心仓位。")
+    if not flags: flags.append("未发现突出单项风险，但仍需控制仓位。")
     return flags
 
 
 def self_check_questions(row: pd.Series, domain: Optional[DomainRecommendation] = None) -> List[str]:
-    category = domain.name if domain else row.get("category", "这类 ETF")
+    category = domain.name if domain else row.get("category", "这类ETF")
     return [
-        f"我是否理解这只ETF为什么被归到“{category}”，主要风险来源是什么？",
+        f'我是否理解这只ETF为什么归到"{category}"，主要风险来源是什么？',
         "如果短期回撤20%-30%，我是否还能按原计划持有？",
         "我买入它是长期配置需要，还是被近期涨幅或热度吸引？",
         "我是否比较过同类ETF的规模、费率、成立时间和流动性？",
@@ -538,35 +523,19 @@ def self_check_questions(row: pd.Series, domain: Optional[DomainRecommendation] 
     ]
 
 
-def explain_etf(row: pd.Series, domain: Optional[DomainRecommendation] = None) -> Tuple[str, str, List[str]]:
-    seen = (
-        f"{row['name']} 当前质量分 {row['quality_score']:.1f}/100，"
-        f"费率合计约 {row.get('total_fee', np.nan):.2f}%，"
-        f"成立约 {row.get('age_years', np.nan):.1f} 年，"
-        f"规模代理约 {format_money(row.get('scale_proxy'))}。"
-    )
-    ignored = "；".join(risk_flags(row))
-    return seen, ignored, self_check_questions(row, domain)
-
-
-def build_fallback_narrative(
-    user: UserProfile,
-    domain: DomainRecommendation,
-    candidates: pd.DataFrame,
-) -> str:
+def build_fallback_narrative(user: UserProfile, domain: DomainRecommendation, candidates: pd.DataFrame) -> str:
     names = "、".join(candidates["name"].head(3).tolist()) if not candidates.empty else "暂无合适候选"
     return (
-        f"根据你的风险承受能力和持有期限，当前更适合先从“{domain.name}”看起。"
+        f'根据你的偏好，当前更适合先从"{domain.name}"看起。'
         f"这个方向的定位是{domain.role}：{domain.plain_intro}"
-        f"在当前样本池里，可以先重点比较：{names}。"
-        f"需要注意，推荐只是帮助你缩小观察范围，不是买入建议；真正决策前还要看回撤、费率、规模和自己能否长期持有。"
+        f"样本池里可以先重点比较：{names}。"
+        f"推荐只是帮助缩小观察范围，不是买入建议；决策前还要看回撤、费率、规模和能否长期持有。"
     )
 
 
+# ── AI functions ──────────────────────────────────────────────────────────────
 def ai_available() -> bool:
-    session_key = st.session_state.get("ai_api_key", "")
-    env_key = os.environ.get("DEEPSEEK_API_KEY", "")
-    return bool(session_key or env_key)
+    return bool(st.session_state.get("ai_api_key") or os.environ.get("DEEPSEEK_API_KEY"))
 
 
 def get_ai_config() -> Tuple[str, str, str]:
@@ -576,465 +545,575 @@ def get_ai_config() -> Tuple[str, str, str]:
     return api_key, base_url, model
 
 
-def call_deepseek(payload: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
-    api_key, base_url, model = get_ai_config()
-    if not api_key:
-        return None, "未设置 API Key，使用规则模板文案。"
-
-    system_prompt = (
-        "你是一个谨慎的ETF投资教育助手。你只能基于用户提供的结构化事实写解释，"
-        "不得编造数据，不得预测收益，不得给出买入、卖出、保证收益等投资建议。"
-        "请用中文输出，面向新手，但保留必要专业词并解释。"
-    )
-    user_prompt = (
-        "请把以下事实润色成一段适合展示在ETF投资助手页面里的解释。"
-        "结构：1）为什么先看这个方向；2）候选ETF怎么比较；3）风险和自查提醒。"
-        "控制在180字以内。\n\n"
-        + json.dumps(to_jsonable(payload), ensure_ascii=False)
-    )
-    try:
-        body = json.dumps(
-            {
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                "temperature": 0.3,
-                "max_tokens": 500,
-            },
-            ensure_ascii=False,
-        ).encode("utf-8")
-        response = requests.post(
-            f"{base_url}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json; charset=utf-8",
-            },
-            data=body,
-            timeout=20,
-        )
-        if not response.ok:
-            err_body = response.content.decode("utf-8", errors="replace")[:300]
-            return None, f"HTTP {response.status_code}: {err_body}"
-        data = json.loads(response.content.decode("utf-8"))
-        text = data["choices"][0]["message"]["content"].strip()
-        return text, None
-    except Exception as exc:
-        provider = st.session_state.get("ai_provider", "AI")
-        return None, f"{provider} 调用失败，已回退模板：{exc}"
-
-
 def to_jsonable(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {str(key): to_jsonable(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [to_jsonable(item) for item in value]
-    if isinstance(value, tuple):
-        return [to_jsonable(item) for item in value]
-    if isinstance(value, (np.integer,)):
-        return int(value)
-    if isinstance(value, (np.floating,)):
-        if pd.isna(value):
-            return None
-        return float(value)
-    if isinstance(value, pd.Timestamp):
-        return value.strftime("%Y-%m-%d")
-    if pd.isna(value):
-        return None
+    if isinstance(value, dict): return {str(k): to_jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)): return [to_jsonable(v) for v in value]
+    if isinstance(value, np.integer): return int(value)
+    if isinstance(value, np.floating): return None if pd.isna(value) else float(value)
+    if isinstance(value, pd.Timestamp): return value.strftime("%Y-%m-%d")
+    if isinstance(value, float) and pd.isna(value): return None
     return value
 
 
-def make_narrative(user: UserProfile, domain: DomainRecommendation, candidates: pd.DataFrame) -> Tuple[str, Optional[str]]:
-    candidate_facts = []
-    for _, row in candidates.head(3).iterrows():
-        candidate_facts.append(
-            {
-                "code": row["code"],
-                "name": row["name"],
-                "quality_score": row["quality_score"],
-                "fee": row.get("total_fee"),
-                "age_years": row.get("age_years"),
-                "max_drawdown": row.get("max_drawdown"),
-                "volatility": row.get("volatility"),
-                "risk_flags": risk_flags(row),
-            }
+def stream_ai_analysis(
+    row: pd.Series,
+    user: Optional[UserProfile] = None,
+    domain: Optional[DomainRecommendation] = None,
+) -> Generator[str, None, None]:
+    api_key, base_url, model = get_ai_config()
+    if not api_key:
+        yield "请先在左侧侧边栏填写 AI 服务商和 API Key。"
+        return
+
+    context = {
+        "etf_name": row.get("name"), "etf_code": row.get("code"),
+        "category": row.get("category"), "quality_score": row.get("quality_score"),
+        "total_fee_pct": row.get("total_fee"), "age_years": row.get("age_years"),
+        "max_drawdown": row.get("max_drawdown"), "volatility": row.get("volatility"),
+        "one_year_return": row.get("one_year_return"), "scale": row.get("scale_proxy"),
+        "risk_flags": risk_flags(row),
+    }
+    if user:
+        context["user_risk_level"] = user.risk_level
+        context["user_horizon"] = user.horizon
+        context["user_experience"] = user.experience
+    if domain:
+        context["recommended_domain"] = domain.name
+
+    system_prompt = (
+        "你是一个谨慎的ETF投资教育助手。只基于用户提供的数据写分析，"
+        "不得编造数据，不得预测收益，不得给出买入卖出建议。用中文输出，面向新手。"
+    )
+    user_prompt = (
+        "请对以下ETF做三部分分析，使用Markdown格式：\n"
+        "**1. 综合质量判断**（约80字，基于评分和各维度指标）\n"
+        "**2. 主要风险提示**（约80字，结合用户风险偏好）\n"
+        "**3. 购前自查清单**（3-5条简洁条目）\n\n"
+        f"数据：{json.dumps(to_jsonable(context), ensure_ascii=False)}"
+    )
+
+    body = json.dumps({
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0.4,
+        "max_tokens": 700,
+        "stream": True,
+    }, ensure_ascii=False).encode("utf-8")
+
+    try:
+        with requests.post(
+            f"{base_url}/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json; charset=utf-8"},
+            data=body, stream=True, timeout=30,
+        ) as resp:
+            if not resp.ok:
+                yield f"API 错误 {resp.status_code}: {resp.content.decode('utf-8', errors='replace')[:200]}"
+                return
+            for line in resp.iter_lines():
+                if not line:
+                    continue
+                if line.startswith(b"data: "):
+                    chunk_data = line[6:]
+                    if chunk_data.strip() == b"[DONE]":
+                        return
+                    try:
+                        chunk = json.loads(chunk_data.decode("utf-8"))
+                        delta = chunk["choices"][0]["delta"].get("content", "")
+                        if delta:
+                            yield delta
+                    except Exception:
+                        continue
+    except Exception as e:
+        yield f"\n\n（输出中断：{e}）"
+
+
+def call_ai_narrative(payload: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    api_key, base_url, model = get_ai_config()
+    if not api_key:
+        return None, "未设置 API Key，使用规则模板。"
+    system_prompt = (
+        "你是一个谨慎的ETF投资教育助手。只基于提供的事实写解释，"
+        "不得编造数据，不得预测收益，不得给出投资建议。用中文输出，面向新手。"
+    )
+    user_prompt = (
+        "请把以下事实润色成一段适合展示的解释。"
+        "结构：1）为什么先看这个方向；2）候选ETF怎么比较；3）风险和自查提醒。控制在180字以内。\n\n"
+        + json.dumps(to_jsonable(payload), ensure_ascii=False)
+    )
+    try:
+        body = json.dumps({
+            "model": model,
+            "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+            "temperature": 0.3, "max_tokens": 500,
+        }, ensure_ascii=False).encode("utf-8")
+        resp = requests.post(
+            f"{base_url}/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json; charset=utf-8"},
+            data=body, timeout=20,
         )
+        if not resp.ok:
+            return None, f"HTTP {resp.status_code}: {resp.content.decode('utf-8', errors='replace')[:200]}"
+        data = json.loads(resp.content.decode("utf-8"))
+        return data["choices"][0]["message"]["content"].strip(), None
+    except Exception as exc:
+        provider = st.session_state.get("ai_provider", "AI")
+        return None, f"{provider} 调用失败：{exc}"
+
+
+def make_narrative(user: UserProfile, domain: DomainRecommendation, candidates: pd.DataFrame) -> Tuple[str, Optional[str]]:
+    candidate_facts = [
+        {"code": r["code"], "name": r["name"], "quality_score": r["quality_score"],
+         "fee": r.get("total_fee"), "age_years": r.get("age_years"),
+         "max_drawdown": r.get("max_drawdown"), "volatility": r.get("volatility"),
+         "risk_flags": risk_flags(r)}
+        for _, r in candidates.head(3).iterrows()
+    ]
     payload = {
         "user_profile": user.__dict__,
-        "domain": {
-            "name": domain.name,
-            "role": domain.role,
-            "intro": domain.plain_intro,
-            "suitable_for": domain.suitable_for,
-            "return_source": domain.return_source,
-            "key_risks": domain.key_risks,
-            "common_mistake": domain.common_mistake,
-        },
+        "domain": {"name": domain.name, "role": domain.role, "intro": domain.plain_intro,
+                   "suitable_for": domain.suitable_for, "return_source": domain.return_source,
+                   "key_risks": domain.key_risks, "common_mistake": domain.common_mistake},
         "candidates": candidate_facts,
         "guardrail": "仅用于学习和决策辅助，不构成投资建议。",
     }
-    text, warning = call_deepseek(payload)
-    if text:
-        return text, None
-    return build_fallback_narrative(user, domain, candidates), warning
+    text, warning = call_ai_narrative(payload)
+    return (text, None) if text else (build_fallback_narrative(user, domain, candidates), warning)
 
 
+# ── Formatting ────────────────────────────────────────────────────────────────
 def format_percent(value: Any) -> str:
-    if pd.isna(value):
-        return "暂无"
-    return f"{value * 100:.2f}%"
+    return "—" if pd.isna(value) else f"{value * 100:.2f}%"
 
 
 def format_money(value: Any) -> str:
-    if pd.isna(value):
-        return "暂无"
-    value = float(value)
-    if value >= 100_000_000:
-        return f"{value / 100_000_000:.1f} 亿元"
-    if value >= 10_000:
-        return f"{value / 10_000:.1f} 万元"
-    return f"{value:.0f} 元"
+    if pd.isna(value): return "—"
+    v = float(value)
+    if v >= 100_000_000: return f"{v / 100_000_000:.1f} 亿"
+    if v >= 10_000: return f"{v / 10_000:.1f} 万"
+    return f"{v:.0f}"
 
 
-def show_header() -> None:
-    st.set_page_config(page_title="ETF 投资助手 Demo", layout="wide")
-    st.title("ETF 投资助手 Demo v2")
-    st.caption("先理解适合自己的ETF方向，再比较具体产品。仅用于学习和决策辅助，不构成投资建议。")
+# ── UI primitives ─────────────────────────────────────────────────────────────
+def section_title(title: str, subtitle: str = "") -> None:
+    sub = f'<p style="color:#475569;margin:5px 0 0;font-size:0.85rem">{subtitle}</p>' if subtitle else ""
+    st.markdown(
+        f'<div style="margin-bottom:24px">'
+        f'<h2 style="margin:0;font-size:1.25rem;color:#e8f0ff;font-weight:700">{title}</h2>{sub}</div>',
+        unsafe_allow_html=True,
+    )
 
 
+def etf_card_html(row: pd.Series, highlight: bool = False) -> None:
+    score = float(row.get("quality_score", 0))
+    score_color = "#10b981" if score >= 70 else "#f59e0b" if score >= 50 else "#ef4444"
+    border = "#1d4ed8" if highlight else "#1e2d4a"
+    badge = ('<span style="position:absolute;top:14px;right:14px;background:#1d4ed814;'
+             'color:#60a5fa;padding:2px 10px;border-radius:4px;font-size:0.7rem;'
+             'font-weight:600;border:1px solid #1d4ed840">方向匹配</span>') if highlight else ""
+    fee = row.get("total_fee", float("nan"))
+    dd = row.get("max_drawdown", float("nan"))
+    vol = row.get("volatility", float("nan"))
+    age = row.get("age_years", float("nan"))
+    scale = row.get("scale_proxy", float("nan"))
+    dd_color = "#ef4444" if not pd.isna(dd) and dd < -0.2 else "#c8d6e8"
+
+    def cell(label: str, val: str, color: str = "#c8d6e8") -> str:
+        return (f'<div><div style="color:#3d5166;font-size:0.67rem;text-transform:uppercase;'
+                f'letter-spacing:.06em;margin-bottom:3px">{label}</div>'
+                f'<div style="color:{color};font-size:0.88rem;font-weight:500">{val}</div></div>')
+
+    st.markdown(
+        f'<div style="position:relative;background:#0d1526;border:1px solid {border};'
+        f'border-radius:12px;padding:18px 22px;margin-bottom:10px">'
+        f'{badge}'
+        f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">'
+        f'<div>'
+        f'<div style="font-size:1.0rem;font-weight:600;color:#e8f0ff">{row.get("name","")}</div>'
+        f'<div style="color:#3d5166;font-size:0.8rem;margin-top:3px">'
+        f'{row.get("code","")} &nbsp;·&nbsp; {row.get("category","")}</div>'
+        f'</div>'
+        f'<div style="background:{score_color}18;color:{score_color};border:1px solid {score_color}40;'
+        f'padding:5px 16px;border-radius:16px;font-weight:700;font-size:1.05rem;white-space:nowrap">'
+        f'{score:.0f}<span style="font-size:0.6rem;opacity:0.7"> /100</span></div>'
+        f'</div>'
+        f'<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;'
+        f'border-top:1px solid #162035;padding-top:12px">'
+        f'{cell("费率", f"{fee:.2f}%" if not pd.isna(fee) else "—")}'
+        f'{cell("最大回撤", format_percent(dd), dd_color)}'
+        f'{cell("年化波动", format_percent(vol))}'
+        f'{cell("成立年限", f"{age:.1f} 年" if not pd.isna(age) else "—")}'
+        f'{cell("规模", format_money(scale))}'
+        f'</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+# ── Sidebar ───────────────────────────────────────────────────────────────────
 def sidebar_controls() -> Tuple[bool, bool]:
     with st.sidebar:
-        st.header("设置")
-
-        # AI 解释设置
-        st.subheader("🤖 AI 解释")
-        provider_names = list(AI_PROVIDERS.keys())
-        selected_provider = st.selectbox(
-            "AI 服务商",
-            provider_names,
-            index=0,
-            key="ai_provider",
+        st.markdown(
+            '<div style="padding:8px 0 20px">'
+            '<div style="font-size:1.1rem;font-weight:700;color:#e8f0ff">ETF 投资助手</div>'
+            '<div style="font-size:0.75rem;color:#334155;margin-top:3px">仅用于学习，不构成投资建议</div>'
+            '</div>',
+            unsafe_allow_html=True,
         )
+        st.markdown('<div style="color:#475569;font-size:0.72rem;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">AI 解释引擎</div>', unsafe_allow_html=True)
+
+        provider_names = list(AI_PROVIDERS.keys())
+        selected_provider = st.selectbox("服务商", provider_names, index=0, key="ai_provider", label_visibility="collapsed")
         provider_cfg = AI_PROVIDERS[selected_provider]
 
         api_key_input = st.text_input(
-            "API Key",
+            "API Key", type="password", placeholder="填入 API Key",
             value=st.session_state.get("ai_api_key", os.environ.get("DEEPSEEK_API_KEY", "")),
-            type="password",
-            placeholder="填入你的 API Key",
-            key="_ai_api_key_input",
+            key="_ai_key_input",
         )
         st.session_state["ai_api_key"] = api_key_input
 
         model_input = st.text_input(
-            "模型名称",
+            "模型", placeholder=provider_cfg["default_model"],
             value=st.session_state.get("ai_model", "") or provider_cfg["default_model"],
-            placeholder=provider_cfg["default_model"],
             key="_ai_model_input",
         )
         st.session_state["ai_model"] = model_input or provider_cfg["default_model"]
         st.session_state["ai_base_url"] = provider_cfg["base_url"]
 
         if ai_available():
-            st.success(f"已启用：{selected_provider} / {st.session_state['ai_model']}")
+            st.success(f"已启用 · {st.session_state['ai_model']}", icon="✓")
         else:
-            st.info("未填写 API Key，解释文案使用规则模板。")
+            st.caption("未填写 API Key，解释使用规则模板")
 
         st.divider()
-
-        # 行情数据
-        st.subheader("📈 行情数据")
-        refresh_prices = st.button("🔄 拉取最新行情（Yahoo Finance）")
-        refresh_profile = st.button("重建ETF静态缓存")
-        st.caption("行情数据来自 Yahoo Finance，自动缓存到 data/cache。")
+        st.markdown('<div style="color:#475569;font-size:0.72rem;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">行情数据</div>', unsafe_allow_html=True)
+        refresh_prices = st.button("拉取最新行情", use_container_width=True)
+        refresh_profile = st.button("重建静态缓存", use_container_width=True)
+        st.caption("数据源：Yahoo Finance · 自动缓存")
         return refresh_prices, refresh_profile
 
 
+# ── Tab: 偏好问卷 ─────────────────────────────────────────────────────────────
 def render_profile_form() -> UserProfile:
-    st.subheader("投资者偏好问卷")
-    st.write("尽量用自己的真实感受来选，不需要先懂专业术语。")
+    section_title("偏好问卷", "尽量用自己的真实感受来选，不需要先懂专业术语")
 
-    left, right = st.columns(2)
+    left, right = st.columns(2, gap="large")
     with left:
-        experience = st.selectbox(
-            "你的投资经验",
-            ["我是新手", "有一些经验", "比较熟悉ETF"],
-            help="这个选项会影响系统解释的详细程度，也会影响是否优先推荐更稳健的方向。",
-        )
+        experience = st.selectbox("投资经验", ["我是新手", "有一些经验", "比较熟悉ETF"])
         risk_answer = st.selectbox(
-            "如果账户短期亏损，你的感受更接近哪一种？",
+            "账户短期亏损时，你的感受更接近？",
             ["我不太能接受亏损", "能接受阶段性波动", "愿意承受较大波动换取机会", "我不确定"],
-            help=f"{HELP_TEXT['回撤']} 系统会把“我不确定”默认按更保守的方式处理。",
         )
-        horizon = st.selectbox(
-            "这笔钱预计多久不用？",
-            ["1年以内", "1-3年", "3年以上"],
-            help="投资期限越短，越不适合承受高波动ETF。短钱不适合拿来押行业主题。",
-        )
+        horizon = st.selectbox("这笔钱预计多久不用？", ["1年以内", "1-3年", "3年以上"])
     with right:
         goal = st.selectbox(
             "你更接近哪种目标？",
             ["希望稳一点，少一些大起大落", "长期配置，慢慢积累", "想抓住某些行业机会", "还没想清楚"],
-            help="目标不同，适合的ETF方向不同。稳健、长期、主题机会不是同一种问题。",
         )
         preference = st.selectbox(
             "你现在更想先了解什么？",
             ["我想先要一个稳一点的底座", "我更关注分红和稳健", "我想了解行业主题机会", "我不确定"],
-            help=f"底座通常接近{HELP_TEXT['宽基']} 分红和稳健通常接近{HELP_TEXT['红利']}",
         )
-        amount = st.number_input(
-            "计划投入金额（元）",
-            min_value=1000.0,
-            value=50000.0,
-            step=1000.0,
-            help="demo暂不直接给仓位建议，只用金额判断解释口径。实际投资还要看总资产和现金流。",
-        )
+        amount = st.number_input("计划投入金额（元）", min_value=1000.0, value=50000.0, step=1000.0)
 
     risk_level = infer_risk_level(risk_answer, experience, horizon)
-    user = UserProfile(
-        experience=experience,
-        risk_level=risk_level,
-        horizon=horizon,
-        goal=goal,
-        preference=preference,
-        amount=amount,
-    )
+    user = UserProfile(experience=experience, risk_level=risk_level, horizon=horizon,
+                       goal=goal, preference=preference, amount=amount)
     st.session_state["user_profile"] = user
 
-    risk_color = {"低风险": "🟢", "中风险": "🟡", "高风险": "🔴"}.get(risk_level, "⚪")
+    risk_icon = {"低风险": "🟢", "中风险": "🟡", "高风险": "🔴"}.get(risk_level, "⚪")
     if "不确定" not in risk_answer:
-        risk_driver = f'当前由"亏损感受"决定：你选了【{risk_answer}】。'
+        driver = f'由【亏损感受】决定：你选了「{risk_answer}」'
     else:
-        risk_driver = '你选了"我不确定"，系统按经验和期限保守处理。'
-    hint = "不太能接受 -> 低风险 / 阶段性波动 -> 中风险 / 愿意承受较大波动 -> 高风险"
-    st.info(
-        f"{risk_color} 风险层级：{risk_level}\n\n"
-        f"{risk_driver}\n\n"
-        f"想改变风险层级，请修改上方【亏损感受】那道题。\n({hint})"
-    )
+        driver = '你选了"我不确定"，系统按经验和期限保守处理'
+    hint = "不太能接受 → 低 / 阶段性波动 → 中 / 愿意承受较大波动 → 高"
+    st.info(f"{risk_icon} **风险层级：{risk_level}**　　{driver}\n\n想改变结果，请修改上方【亏损感受】那道题。（{hint}）")
     return user
 
 
+# ── Tab: 领域推荐 ─────────────────────────────────────────────────────────────
 def render_domain_recommendations(user: UserProfile) -> List[DomainRecommendation]:
     domains = recommend_domains(user)
-    st.subheader("适合你的ETF方向")
-    st.write("第一步先看方向，而不是直接跳到某一只ETF。方向对了，后面的产品比较才有意义。")
+    section_title("适合你的 ETF 方向", "先确定方向，再比较具体产品")
 
-    with st.expander("📋 当前使用的用户画像（确认偏好问卷是否已生效）", expanded=False):
-        cols = st.columns(3)
-        cols[0].metric("投资经验", user.experience)
-        cols[0].metric("风险层级", user.risk_level)
-        cols[1].metric("持有期限", user.horizon)
-        cols[1].metric("投资目标", user.goal)
-        cols[2].metric("偏好方向", user.preference)
-        cols[2].metric("计划金额", f"{user.amount:,.0f} 元")
-        st.caption('如果这里显示的不是你刚才选的，请先在"偏好问卷" tab 提交后再切回来。')
-
-    cols = st.columns(3)
-    for col, domain in zip(cols, domains):
+    cols = st.columns(3, gap="medium")
+    colors = ["#3b82f6", "#10b981", "#f59e0b"]
+    for col, domain, color in zip(cols, domains, colors):
         with col:
-            st.metric(domain.name, f"{domain.match_score:.0f}分", help=domain.risk_hint)
-            st.write(f"定位：{domain.role}")
-            st.write(domain.plain_intro)
-            st.caption(domain.risk_hint)
+            st.markdown(
+                f'<div style="background:#0d1526;border:1px solid #1e2d4a;border-radius:12px;padding:20px">'
+                f'<div style="color:{color};font-size:1.6rem;font-weight:800;margin-bottom:2px">{domain.match_score:.0f}</div>'
+                f'<div style="color:#94a3b8;font-size:0.7rem;text-transform:uppercase;letter-spacing:.08em">匹配分</div>'
+                f'<div style="color:#e8f0ff;font-weight:700;font-size:1.05rem;margin:10px 0 4px">{domain.name}</div>'
+                f'<div style="color:#475569;font-size:0.75rem;margin-bottom:8px">{domain.role}</div>'
+                f'<div style="color:#94a3b8;font-size:0.82rem;line-height:1.5">{domain.plain_intro}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
-    top_domain = domains[0]
-    with st.expander(f"为什么优先看：{top_domain.name}", expanded=True):
+    st.markdown("<br>", unsafe_allow_html=True)
+    top = domains[0]
+    with st.expander(f"为什么优先推荐「{top.name}」？", expanded=True):
         c1, c2 = st.columns(2)
-        c1.write(f"**适合人群：** {top_domain.suitable_for}")
-        c1.write(f"**收益来源：** {top_domain.return_source}")
-        c2.write(f"**主要风险：** {top_domain.key_risks}")
-        c2.write(f"**常见误区：** {top_domain.common_mistake}")
+        c1.markdown(f"**适合人群**\n\n{top.suitable_for}")
+        c1.markdown(f"**收益来源**\n\n{top.return_source}")
+        c2.markdown(f"**主要风险**\n\n{top.key_risks}")
+        c2.markdown(f"**常见误区**\n\n{top.common_mistake}")
+
+    with st.expander("当前用户画像（确认偏好是否生效）"):
+        r1, r2, r3 = st.columns(3)
+        r1.metric("投资经验", user.experience)
+        r1.metric("风险层级", user.risk_level)
+        r2.metric("持有期限", user.horizon)
+        r2.metric("投资目标", user.goal[:8] + "…" if len(user.goal) > 8 else user.goal)
+        r3.metric("偏好方向", user.preference[:8] + "…" if len(user.preference) > 8 else user.preference)
+        r3.metric("计划金额", f"{user.amount:,.0f} 元")
+
     return domains
 
 
+# ── Tab: ETF候选 ──────────────────────────────────────────────────────────────
 def render_candidates(df: pd.DataFrame, user: UserProfile, domains: List[DomainRecommendation]) -> None:
-    st.subheader("该方向下的具体ETF候选")
-    domain_names = [domain.name for domain in domains]
-    selected_name = st.selectbox("选择一个方向查看ETF候选", domain_names, help="先选方向，再在同方向内比较规模、费率、回撤和流动性。")
-    domain = next(item for item in domains if item.name == selected_name)
+    section_title("ETF 候选对比", "先选方向，再在同方向内比较规模、费率、回撤")
+
+    domain_names = [d.name for d in domains]
+    selected_name = st.selectbox("选择方向", domain_names, label_visibility="collapsed")
+    domain = next(d for d in domains if d.name == selected_name)
     candidates = rank_candidates(df, user, domain)
-    narrative, warning = make_narrative(user, domain, candidates)
-    if warning:
-        st.caption(warning)
 
-    st.markdown("#### 方向解释")
-    st.write(narrative)
+    for _, row in candidates.iterrows():
+        etf_card_html(row, highlight=bool(row.get("domain_match")))
 
-    cols = st.columns(3)
-    for col, (_, row) in zip(cols, candidates.iterrows()):
-        with col:
-            st.metric(row["name"], f"{row['quality_score']:.1f}/100", help=row["code"])
-            st.write(f"候选分：{row['candidate_score']:.1f}")
-            st.write(f"类型：{row['category']}")
-            st.write(f"费率：{row.get('total_fee', np.nan):.2f}%")
-            st.write(f"规模代理：{format_money(row.get('scale_proxy'))}")
-            st.write(f"最大回撤：{format_percent(row.get('max_drawdown'))}")
-            st.caption(risk_flags(row)[0])
+    st.markdown("<br>", unsafe_allow_html=True)
 
-    st.dataframe(
-        candidates[
-            [
-                "code",
-                "name",
-                "category",
-                "quality_score",
-                "candidate_score",
-                "domain_match",
-                "total_fee",
-                "age_years",
-                "max_drawdown",
-                "volatility",
-            ]
-        ],
-        use_container_width=True,
-    )
+    with st.expander("AI 方向解释", expanded=False):
+        col_btn, col_note = st.columns([2, 5])
+        with col_btn:
+            if st.button("生成 AI 解释", type="primary", key="btn_narrative"):
+                narrative, warning = make_narrative(user, domain, candidates)
+                st.session_state["narrative_text"] = narrative
+                st.session_state["narrative_warning"] = warning
+        with col_note:
+            st.caption("AI 根据你的偏好和候选数据生成解释，不构成投资建议")
+        if "narrative_text" in st.session_state:
+            if st.session_state.get("narrative_warning"):
+                st.caption(st.session_state["narrative_warning"])
+            st.markdown(st.session_state["narrative_text"])
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    with st.expander("查看完整对比数据"):
+        st.dataframe(
+            candidates[["code", "name", "category", "quality_score", "candidate_score",
+                         "total_fee", "age_years", "max_drawdown", "volatility"]],
+            use_container_width=True,
+        )
 
 
+# ── Tab: 质量评估 ─────────────────────────────────────────────────────────────
 def render_quality_detail(df: pd.DataFrame, prices: pd.DataFrame, domains: List[DomainRecommendation]) -> None:
-    st.subheader("单只ETF质量评估")
-    selected = st.selectbox("选择ETF", df["code"] + " - " + df["name"], help="质量分不是买卖建议，只是帮你系统检查规模、费率、成立时间、风险和数据完整性。")
-    code = selected.split(" - ")[0]
+    section_title("单只 ETF 质量评估", "质量分不是买卖信号，只是系统性检查规模、费率、风险和数据完整性")
+
+    selected = st.selectbox("选择 ETF", df["code"] + "  " + df["name"], label_visibility="collapsed")
+    code = selected.split("  ")[0]
     row = df.loc[df["code"] == code].iloc[0]
     domain = domains[0] if domains else None
-    seen, ignored, questions = explain_etf(row, domain)
 
-    top = st.columns([1, 1, 1, 1])
-    top[0].metric("质量总分", f"{row['quality_score']:.1f}/100")
-    top[1].metric("最大回撤", format_percent(row.get("max_drawdown")), help=HELP_TEXT["回撤"])
-    top[2].metric("年化波动率", format_percent(row.get("volatility")), help=HELP_TEXT["波动率"])
-    top[3].metric("近一年收益", format_percent(row.get("one_year_return")), help="过去一年表现不代表未来收益，也可能受起止日期影响。")
+    # Top metrics row
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("质量总分", f"{row['quality_score']:.1f} / 100")
+    m2.metric("最大回撤", format_percent(row.get("max_drawdown")))
+    m3.metric("年化波动率", format_percent(row.get("volatility")))
+    m4.metric("近一年收益", format_percent(row.get("one_year_return")))
 
-    score_df = pd.DataFrame(
-        {
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    left_col, right_col = st.columns([1, 1], gap="large")
+
+    with left_col:
+        # Score breakdown radar/bar chart
+        score_df = pd.DataFrame({
             "维度": ["规模", "费率", "成立时间", "历史风险", "数据完整性"],
             "得分": [row["size_score"], row["fee_score"], row["age_score"], row["risk_score"], row["data_score"]],
             "满分": [25, 20, 20, 20, 15],
-        }
+        })
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=score_df["维度"], y=score_df["满分"],
+            marker_color="#1e2d4a", name="满分", showlegend=False,
+        ))
+        fig.add_trace(go.Bar(
+            x=score_df["维度"], y=score_df["得分"],
+            marker_color="#3b82f6", name="得分", showlegend=False,
+        ))
+        fig.update_layout(
+            barmode="overlay", plot_bgcolor="#0d1526", paper_bgcolor="#0d1526",
+            font_color="#94a3b8", height=240, margin=dict(l=0, r=0, t=8, b=0),
+            xaxis=dict(gridcolor="#162035"), yaxis=dict(gridcolor="#162035"),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    with right_col:
+        # Price chart
+        price_df = prices[prices["code"] == code].copy() if not prices.empty else pd.DataFrame()
+        if not price_df.empty:
+            fig2 = px.line(price_df, x="date", y="close", color_discrete_sequence=["#3b82f6"])
+            fig2.update_layout(
+                plot_bgcolor="#0d1526", paper_bgcolor="#0d1526",
+                font_color="#94a3b8", height=240, margin=dict(l=0, r=0, t=8, b=0),
+                xaxis=dict(gridcolor="#162035", title=""), yaxis=dict(gridcolor="#162035", title="收盘价"),
+            )
+            fig2.update_traces(line_width=1.8)
+            st.plotly_chart(fig2, use_container_width=True)
+        else:
+            st.info("暂无历史行情，点击侧边栏「拉取最新行情」获取数据")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Risk flags
+    flags = risk_flags(row)
+    flag_html = "".join(
+        f'<div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:7px">'
+        f'<span style="color:#f59e0b;margin-top:1px">⚠</span>'
+        f'<span style="color:#94a3b8;font-size:0.87rem">{f}</span></div>'
+        for f in flags
     )
-    st.plotly_chart(px.bar(score_df, x="维度", y="得分", text="得分", range_y=[0, 25]), use_container_width=True)
+    st.markdown(
+        f'<div style="background:#0d1526;border:1px solid #1e2d4a;border-radius:10px;padding:16px 20px;margin-bottom:16px">'
+        f'<div style="color:#c8d6e8;font-size:0.82rem;font-weight:600;margin-bottom:10px">风险提示</div>'
+        f'{flag_html}</div>',
+        unsafe_allow_html=True,
+    )
 
-    price_df = prices[prices["code"] == code].copy() if not prices.empty else pd.DataFrame()
-    if not price_df.empty:
-        st.plotly_chart(px.line(price_df, x="date", y="close", title="近一年收盘价"), use_container_width=True)
+    # AI analysis section
+    st.markdown(
+        '<div style="background:#0d1526;border:1px solid #1e2d4a;border-radius:10px;padding:20px 22px">',
+        unsafe_allow_html=True,
+    )
+    ai_col, note_col = st.columns([2, 4])
+    user_profile = st.session_state.get("user_profile")
+    with ai_col:
+        run_ai = st.button("🤖 一键 AI 深度分析", type="primary", key=f"ai_{code}", use_container_width=True)
+    with note_col:
+        if ai_available():
+            st.caption(f"使用 {st.session_state.get('ai_provider','AI')} · {st.session_state.get('ai_model','')} 流式生成")
+        else:
+            st.caption("请先在左侧侧边栏填写 AI 服务商信息")
+
+    ai_key = f"ai_result_{code}"
+    if run_ai:
+        st.session_state.pop(ai_key, None)
+        result = st.write_stream(stream_ai_analysis(row, user_profile, domain))
+        st.session_state[ai_key] = result
+    elif ai_key in st.session_state:
+        st.markdown(st.session_state[ai_key])
     else:
-        st.info("暂无历史行情缓存。设置 iFinD 账号后点击侧边栏“重新拉取 iFinD 行情”。")
+        questions = self_check_questions(row, domain)
+        q_html = "".join(
+            f'<div style="color:#64748b;font-size:0.85rem;margin-bottom:6px">· {q}</div>'
+            for q in questions
+        )
+        st.markdown(
+            f'<div style="color:#475569;font-size:0.8rem;margin-bottom:10px">点击按钮后 AI 将流式生成分析报告。以下是预设自查问题：</div>'
+            f'{q_html}',
+            unsafe_allow_html=True,
+        )
 
-    st.markdown("### 三段式解释")
-    st.write(f"**你看到的指标：** {seen}")
-    st.write(f"**容易忽略的问题：** {ignored}")
-    st.write("**投资前自查问题：**")
-    for question in questions:
-        st.write(f"- {question}")
-
-
-def render_terms() -> None:
-    st.subheader("术语小抄")
-    cols = st.columns(2)
-    for idx, (term, desc) in enumerate(HELP_TEXT.items()):
-        with cols[idx % 2]:
-            st.write(f"**{term}**：{desc}")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
-def render_universe(df: pd.DataFrame) -> None:
-    st.subheader("10只ETF样本池")
-    display = df[
-        [
-            "code",
-            "name",
-            "category",
-            "style",
-            "quality_score",
-            "total_fee",
-            "age_years",
-            "scale_proxy",
-            "price_points",
-        ]
-    ].copy()
+# ── Tab: 数据与术语 ───────────────────────────────────────────────────────────
+def render_universe_and_terms(df: pd.DataFrame) -> None:
+    section_title("样本池 & 术语", "10 只上证 ETF 样本 · 数据来自 Excel + Yahoo Finance 缓存")
+
+    display = df[["code", "name", "category", "style", "quality_score", "total_fee",
+                  "age_years", "scale_proxy", "price_points"]].copy()
     display["scale_proxy"] = display["scale_proxy"].apply(format_money)
     st.dataframe(display, use_container_width=True)
 
+    st.markdown("<br>", unsafe_allow_html=True)
+    section_title("术语说明")
+    cols = st.columns(2)
+    for idx, (term, desc) in enumerate(HELP_TEXT.items()):
+        with cols[idx % 2]:
+            st.markdown(
+                f'<div style="background:#0d1526;border:1px solid #1e2d4a;border-radius:8px;'
+                f'padding:12px 16px;margin-bottom:8px">'
+                f'<div style="color:#60a5fa;font-size:0.82rem;font-weight:600;margin-bottom:4px">{term}</div>'
+                f'<div style="color:#64748b;font-size:0.83rem;line-height:1.5">{desc}</div></div>',
+                unsafe_allow_html=True,
+            )
 
+
+# ── Tab: 调试 ─────────────────────────────────────────────────────────────────
 def render_debug(profile: pd.DataFrame, prices: pd.DataFrame, df: pd.DataFrame) -> None:
-    st.subheader("调试信息")
+    section_title("调试信息", "开发用，后续可隐藏")
 
-    # 缓存文件状态
-    st.markdown("#### 缓存文件状态")
-    c1, c2 = st.columns(2)
     def fmt_mtime(path: Path) -> str:
-        return (
-            pd.Timestamp(path.stat().st_mtime, unit="s", tz="UTC")
-            .tz_convert(CST)
-            .strftime("%Y-%m-%d %H:%M:%S（北京时间）")
-        )
+        return (pd.Timestamp(path.stat().st_mtime, unit="s", tz="UTC")
+                .tz_convert(CST).strftime("%Y-%m-%d %H:%M:%S（北京时间）"))
 
+    c1, c2 = st.columns(2)
     with c1:
         if PROFILE_CACHE.exists():
-            st.success(f"etf_sample_profile.csv 存在\n最后修改：{fmt_mtime(PROFILE_CACHE)}")
+            st.success(f"profile 缓存存在 · 修改于 {fmt_mtime(PROFILE_CACHE)}")
         else:
-            st.error("etf_sample_profile.csv 不存在")
+            st.error("profile 缓存不存在")
     with c2:
         if PRICE_CACHE.exists():
-            st.success(f"etf_sample_prices.csv 存在\n最后修改：{fmt_mtime(PRICE_CACHE)}")
+            st.success(f"prices 缓存存在 · 修改于 {fmt_mtime(PRICE_CACHE)}")
         else:
-            st.error("etf_sample_prices.csv 不存在")
+            st.error("prices 缓存不存在")
 
-    # 行情缓存中的更新时间（如果有）
-    if not prices.empty and "fetch_time" in prices.columns:
-        fetch_time = prices["fetch_time"].dropna().iloc[0] if prices["fetch_time"].notna().any() else "未知"
-        st.info(f"行情最近一次从 Yahoo Finance 拉取时间：{fetch_time}")
+    if not prices.empty and "fetch_time" in prices.columns and prices["fetch_time"].notna().any():
+        st.info(f"行情最近拉取时间：{prices['fetch_time'].dropna().iloc[0]}")
     else:
-        st.info("行情来自缓存文件（未记录拉取时间，或尚未从 Yahoo Finance 拉取过）")
+        st.info("行情来自本地缓存（未记录拉取时间）")
 
-    # 每只ETF行情点数
-    st.markdown("#### 各ETF行情数据点数")
+    st.markdown("#### 各 ETF 数据点统计")
     if not prices.empty:
-        summary = prices.groupby("code").agg(
-            数据点数=("close", "count"),
-            最早日期=("date", "min"),
-            最新日期=("date", "max"),
-            最新收盘价=("close", "last"),
-        ).reset_index()
-        st.dataframe(summary, use_container_width=True)
-    else:
-        st.warning("暂无行情数据")
+        st.dataframe(
+            prices.groupby("code").agg(
+                数据点数=("close", "count"),
+                最早日期=("date", "min"),
+                最新日期=("date", "max"),
+                最新收盘价=("close", "last"),
+            ).reset_index(),
+            use_container_width=True,
+        )
 
-    # 完整profile表
-    st.markdown("#### ETF基本信息（完整）")
-    st.dataframe(profile, use_container_width=True)
-
-    # 完整prices表（最近20条）
-    st.markdown("#### 行情缓存（最近20条）")
-    if not prices.empty:
-        st.dataframe(prices.sort_values("date", ascending=False).head(20), use_container_width=True)
-    else:
-        st.warning("暂无行情数据")
-
-    # 完整打分表
-    st.markdown("#### 综合打分表（完整）")
-    st.dataframe(df, use_container_width=True)
+    with st.expander("ETF 基本信息（完整）"):
+        st.dataframe(profile, use_container_width=True)
+    with st.expander("行情缓存（最近 20 条）"):
+        if not prices.empty:
+            st.dataframe(prices.sort_values("date", ascending=False).head(20), use_container_width=True)
+    with st.expander("综合打分表（完整）"):
+        st.dataframe(df, use_container_width=True)
 
 
+# ── Main ──────────────────────────────────────────────────────────────────────
 def main() -> None:
-    show_header()
+    st.set_page_config(page_title="ETF 投资助手", layout="wide", page_icon="📊")
+    st.markdown(PAGE_CSS, unsafe_allow_html=True)
+
     refresh_prices, refresh_profile = sidebar_controls()
 
     profile = load_or_create_profile(refresh=refresh_profile)
 
     if refresh_prices:
-        progress_placeholder = st.empty()
-        with st.spinner("正在从 Yahoo Finance 拉取行情，请稍候…"):
-            prices, price_warning = load_prices(profile["code"], refresh=True, progress_placeholder=progress_placeholder)
-        progress_placeholder.empty()
-        if price_warning:
-            st.error(f"拉取结果：\n\n{price_warning}")
+        prog = st.empty()
+        with st.spinner("正在从 Yahoo Finance 拉取行情…"):
+            prices, warn = load_prices(profile["code"], refresh=True, progress_placeholder=prog)
+        prog.empty()
+        if warn:
+            st.error(f"部分拉取失败：{warn}")
         else:
-            st.success("行情拉取成功，已更新缓存！")
+            st.success("行情更新成功")
     else:
-        prices, price_warning = load_prices(profile["code"], refresh=False)
-        if price_warning:
-            st.warning(price_warning)
+        prices, warn = load_prices(profile["code"], refresh=False)
+        if warn:
+            st.warning(warn)
 
     df = add_metrics(profile, prices)
 
@@ -1042,8 +1121,17 @@ def main() -> None:
     user = st.session_state.get("user_profile", default_user)
     domains = recommend_domains(user)
 
+    # Header
+    st.markdown(
+        '<div style="padding:8px 0 28px">'
+        '<div style="font-size:1.9rem;font-weight:800;color:#e8f0ff;letter-spacing:-0.03em">ETF 投资助手</div>'
+        '<div style="color:#334155;font-size:0.88rem;margin-top:6px">'
+        '基于规则评分 + AI 解释 · 仅用于学习和决策辅助，不构成投资建议</div></div>',
+        unsafe_allow_html=True,
+    )
+
     tab_profile, tab_domain, tab_candidates, tab_detail, tab_data, tab_debug = st.tabs(
-        ["偏好问卷", "领域推荐", "ETF候选", "质量评估", "数据与术语", "🔧 调试"]
+        ["偏好问卷", "方向推荐", "ETF 对比", "质量评估", "数据 & 术语", "🔧 调试"]
     )
 
     with tab_profile:
@@ -1060,9 +1148,7 @@ def main() -> None:
         render_quality_detail(df, prices, domains)
 
     with tab_data:
-        render_universe(df)
-        render_terms()
-        st.caption("数据来源：本地Excel样本 + Yahoo Finance行情。仅用于demo，不构成投资建议。")
+        render_universe_and_terms(df)
 
     with tab_debug:
         render_debug(profile, prices, df)
