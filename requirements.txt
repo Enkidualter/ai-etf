@@ -1,0 +1,7 @@
+iFinDAPI==0.0.8
+numpy
+pandas
+openpyxl
+plotly
+requests
+streamlit
