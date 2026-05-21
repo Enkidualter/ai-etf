@@ -30,6 +30,31 @@ SAMPLE_SIZE = 10
 DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
 DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash")
 
+CST = "Asia/Shanghai"
+
+AI_PROVIDERS: Dict[str, Dict[str, str]] = {
+    "DeepSeek": {
+        "base_url": "https://api.deepseek.com",
+        "default_model": "deepseek-chat",
+    },
+    "OpenAI": {
+        "base_url": "https://api.openai.com/v1",
+        "default_model": "gpt-4o-mini",
+    },
+    "Moonshot (Kimi)": {
+        "base_url": "https://api.moonshot.cn/v1",
+        "default_model": "moonshot-v1-8k",
+    },
+    "智谱 GLM": {
+        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "default_model": "glm-4-flash",
+    },
+    "硅基流动 SiliconFlow": {
+        "base_url": "https://api.siliconflow.cn/v1",
+        "default_model": "Qwen/Qwen2.5-7B-Instruct",
+    },
+}
+
 
 HELP_TEXT = {
     "宽基": "宽基ETF通常跟踪沪深300、上证50、中证500这类大盘或综合指数，买的是一篮子股票，更适合作为长期配置的核心仓位。",
@@ -237,7 +262,7 @@ def fetch_prices_from_yfinance(
         return pd.DataFrame(), f"所有代码拉取失败：\n{detail}"
 
     prices = pd.concat(frames, ignore_index=True)
-    prices["fetch_time"] = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
+    prices["fetch_time"] = pd.Timestamp.now(tz="UTC").tz_convert(CST).strftime("%Y-%m-%d %H:%M:%S")
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     prices.to_csv(PRICE_CACHE, index=False, encoding="utf-8-sig")
     summary = f"成功：{', '.join(successes)}"
@@ -534,14 +559,23 @@ def build_fallback_narrative(
     )
 
 
-def deepseek_available() -> bool:
-    return bool(os.environ.get("DEEPSEEK_API_KEY"))
+def ai_available() -> bool:
+    session_key = st.session_state.get("ai_api_key", "")
+    env_key = os.environ.get("DEEPSEEK_API_KEY", "")
+    return bool(session_key or env_key)
+
+
+def get_ai_config() -> Tuple[str, str, str]:
+    api_key = st.session_state.get("ai_api_key") or os.environ.get("DEEPSEEK_API_KEY", "")
+    base_url = (st.session_state.get("ai_base_url") or DEEPSEEK_BASE_URL).rstrip("/")
+    model = st.session_state.get("ai_model") or DEEPSEEK_MODEL
+    return api_key, base_url, model
 
 
 def call_deepseek(payload: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
-    api_key = os.environ.get("DEEPSEEK_API_KEY")
+    api_key, base_url, model = get_ai_config()
     if not api_key:
-        return None, "未设置 DEEPSEEK_API_KEY，使用规则模板文案。"
+        return None, "未设置 API Key，使用规则模板文案。"
 
     system_prompt = (
         "你是一个谨慎的ETF投资教育助手。你只能基于用户提供的结构化事实写解释，"
@@ -556,10 +590,10 @@ def call_deepseek(payload: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]
     )
     try:
         response = requests.post(
-            f"{DEEPSEEK_BASE_URL}/chat/completions",
+            f"{base_url}/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json={
-                "model": DEEPSEEK_MODEL,
+                "model": model,
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
@@ -574,7 +608,8 @@ def call_deepseek(payload: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]
         text = data["choices"][0]["message"]["content"].strip()
         return text, None
     except Exception as exc:
-        return None, f"DeepSeek 调用失败，已回退模板：{exc}"
+        provider = st.session_state.get("ai_provider", "AI")
+        return None, f"{provider} 调用失败，已回退模板：{exc}"
 
 
 def to_jsonable(value: Any) -> Any:
@@ -657,14 +692,46 @@ def show_header() -> None:
 
 def sidebar_controls() -> Tuple[bool, bool]:
     with st.sidebar:
-        st.header("数据与模型")
+        st.header("设置")
 
-        if deepseek_available():
-            st.success(f"已启用 AI 解释：{DEEPSEEK_MODEL}")
+        # AI 解释设置
+        st.subheader("🤖 AI 解释")
+        provider_names = list(AI_PROVIDERS.keys())
+        selected_provider = st.selectbox(
+            "AI 服务商",
+            provider_names,
+            index=0,
+            key="ai_provider",
+        )
+        provider_cfg = AI_PROVIDERS[selected_provider]
+
+        api_key_input = st.text_input(
+            "API Key",
+            value=st.session_state.get("ai_api_key", os.environ.get("DEEPSEEK_API_KEY", "")),
+            type="password",
+            placeholder="填入你的 API Key",
+            key="_ai_api_key_input",
+        )
+        st.session_state["ai_api_key"] = api_key_input
+
+        model_input = st.text_input(
+            "模型名称",
+            value=st.session_state.get("ai_model", "") or provider_cfg["default_model"],
+            placeholder=provider_cfg["default_model"],
+            key="_ai_model_input",
+        )
+        st.session_state["ai_model"] = model_input or provider_cfg["default_model"]
+        st.session_state["ai_base_url"] = provider_cfg["base_url"]
+
+        if ai_available():
+            st.success(f"已启用：{selected_provider} / {st.session_state['ai_model']}")
         else:
-            st.info("未配置 DeepSeek，解释文案使用规则模板。")
+            st.info("未填写 API Key，解释文案使用规则模板。")
 
         st.divider()
+
+        # 行情数据
+        st.subheader("📈 行情数据")
         refresh_prices = st.button("🔄 拉取最新行情（Yahoo Finance）")
         refresh_profile = st.button("重建ETF静态缓存")
         st.caption("行情数据来自 Yahoo Finance，自动缓存到 data/cache。")
@@ -729,6 +796,16 @@ def render_domain_recommendations(user: UserProfile) -> List[DomainRecommendatio
     domains = recommend_domains(user)
     st.subheader("适合你的ETF方向")
     st.write("第一步先看方向，而不是直接跳到某一只ETF。方向对了，后面的产品比较才有意义。")
+
+    with st.expander("📋 当前使用的用户画像（确认偏好问卷是否已生效）", expanded=False):
+        cols = st.columns(3)
+        cols[0].metric("投资经验", user.experience)
+        cols[0].metric("风险层级", user.risk_level)
+        cols[1].metric("持有期限", user.horizon)
+        cols[1].metric("投资目标", user.goal)
+        cols[2].metric("偏好方向", user.preference)
+        cols[2].metric("计划金额", f"{user.amount:,.0f} 元")
+        st.caption('如果这里显示的不是你刚才选的，请先在"偏好问卷" tab 提交后再切回来。')
 
     cols = st.columns(3)
     for col, domain in zip(cols, domains):
@@ -861,16 +938,21 @@ def render_debug(profile: pd.DataFrame, prices: pd.DataFrame, df: pd.DataFrame) 
     # 缓存文件状态
     st.markdown("#### 缓存文件状态")
     c1, c2 = st.columns(2)
+    def fmt_mtime(path: Path) -> str:
+        return (
+            pd.Timestamp(path.stat().st_mtime, unit="s", tz="UTC")
+            .tz_convert(CST)
+            .strftime("%Y-%m-%d %H:%M:%S（北京时间）")
+        )
+
     with c1:
         if PROFILE_CACHE.exists():
-            mtime = pd.Timestamp(PROFILE_CACHE.stat().st_mtime, unit="s").strftime("%Y-%m-%d %H:%M:%S")
-            st.success(f"etf_sample_profile.csv 存在\n最后修改：{mtime}")
+            st.success(f"etf_sample_profile.csv 存在\n最后修改：{fmt_mtime(PROFILE_CACHE)}")
         else:
             st.error("etf_sample_profile.csv 不存在")
     with c2:
         if PRICE_CACHE.exists():
-            mtime = pd.Timestamp(PRICE_CACHE.stat().st_mtime, unit="s").strftime("%Y-%m-%d %H:%M:%S")
-            st.success(f"etf_sample_prices.csv 存在\n最后修改：{mtime}")
+            st.success(f"etf_sample_prices.csv 存在\n最后修改：{fmt_mtime(PRICE_CACHE)}")
         else:
             st.error("etf_sample_prices.csv 不存在")
 
