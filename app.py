@@ -196,105 +196,39 @@ def load_or_create_profile(refresh: bool = False) -> pd.DataFrame:
     return df
 
 
-def import_ifind() -> Any:
+def fetch_prices_from_akshare(codes: Iterable[str]) -> Tuple[pd.DataFrame, Optional[str]]:
     try:
-        import iFinDPy as ifind
+        import akshare as ak
     except ImportError:
-        return None
-    return ifind
+        return pd.DataFrame(), "未安装 akshare，请执行 pip install akshare。"
 
-
-def credentials_available() -> bool:
-    env_ok = bool(os.environ.get("IFIND_USERNAME") and os.environ.get("IFIND_PASSWORD"))
-    session_ok = bool(st.session_state.get("ifind_username") and st.session_state.get("ifind_password"))
-    return env_ok or session_ok
-
-
-def get_ifind_credentials() -> Tuple[str, str]:
-    username = os.environ.get("IFIND_USERNAME") or st.session_state.get("ifind_username", "")
-    password = os.environ.get("IFIND_PASSWORD") or st.session_state.get("ifind_password", "")
-    return username, password
-
-
-def ensure_success(result: Any, action: str) -> None:
-    error_code = getattr(result, "errorcode", result)
-    if error_code != 0:
-        raise RuntimeError(f"{action} failed: errorcode={error_code}")
-
-
-def extract_ifind_dataframe(result: Any) -> pd.DataFrame:
-    if isinstance(result, pd.DataFrame):
-        return result
-    data = getattr(result, "data", None)
-    if isinstance(data, pd.DataFrame):
-        return data
-    if isinstance(data, list):
-        return pd.DataFrame(data)
-    if isinstance(data, dict):
-        return pd.DataFrame(data)
-    return pd.DataFrame()
-
-
-def normalize_price_frame(df: pd.DataFrame, code: str) -> pd.DataFrame:
-    if df.empty:
-        return df
-    out = df.copy()
-    out = out.rename(columns={col: str(col).lower() for col in out.columns})
-
-    date_candidates = ["time", "date", "datetime", "trade_date", "ths_tradedate_stock"]
-    close_candidates = ["close", "ths_close_price_stock", "closeprice", "收盘价"]
-    date_col = next((col for col in date_candidates if col in out.columns), None)
-    close_col = next((col for col in close_candidates if col in out.columns), None)
-
-    if date_col is None:
-        date_col = out.columns[0]
-    if close_col is None:
-        numeric_cols = [col for col in out.columns if pd.to_numeric(out[col], errors="coerce").notna().any()]
-        close_col = numeric_cols[-1] if numeric_cols else None
-    if close_col is None:
-        return pd.DataFrame()
-
-    result = pd.DataFrame(
-        {
-            "code": code,
-            "date": pd.to_datetime(out[date_col], errors="coerce"),
-            "close": pd.to_numeric(out[close_col], errors="coerce"),
-        }
-    )
-    return result.dropna(subset=["date", "close"]).sort_values("date")
-
-
-def fetch_prices_from_ifind(codes: Iterable[str]) -> Tuple[pd.DataFrame, Optional[str]]:
-    if not credentials_available():
-        return pd.DataFrame(), "未设置 IFIND_USERNAME 或 IFIND_PASSWORD，暂未调用 iFinD。"
-    ifind = import_ifind()
-    if ifind is None:
-        return pd.DataFrame(), "当前 Python 环境未安装 iFinDPy。"
-
-    username, password = get_ifind_credentials()
-    start = (date.today() - timedelta(days=365)).strftime("%Y-%m-%d")
-    end = date.today().strftime("%Y-%m-%d")
+    start = (date.today() - timedelta(days=365)).strftime("%Y%m%d")
+    end = date.today().strftime("%Y%m%d")
     frames: List[pd.DataFrame] = []
 
-    try:
-        login_result = ifind.THS_iFinDLogin(username, password)
-        ensure_success(login_result, "iFinD login")
-        for code in codes:
-            result = ifind.THS_HQ(code, "open,high,low,close", "Currency:MHB,fill:Omit", start, end)
-            frame = normalize_price_frame(extract_ifind_dataframe(result), code)
-            if not frame.empty:
-                frames.append(frame)
-    except Exception as exc:
-        return pd.DataFrame(), f"iFinD 拉取失败：{exc}"
-    finally:
-        if hasattr(ifind, "THS_iFinDLogout"):
-            try:
-                ifind.THS_iFinDLogout()
-            except Exception:
-                pass
+    for code in codes:
+        try:
+            clean_code = str(code).split(".")[0]
+            df = ak.fund_etf_hist_em(
+                symbol=clean_code,
+                period="daily",
+                start_date=start,
+                end_date=end,
+                adjust="",
+            )
+            if df.empty:
+                continue
+            frame = pd.DataFrame({
+                "code": code,
+                "date": pd.to_datetime(df["日期"], errors="coerce"),
+                "close": pd.to_numeric(df["收盘"], errors="coerce"),
+            }).dropna(subset=["date", "close"]).sort_values("date")
+            frames.append(frame)
+        except Exception:
+            continue
 
     if not frames:
-        return pd.DataFrame(), "iFinD 未返回可用行情数据。"
+        return pd.DataFrame(), "akshare 未返回可用数据，请检查网络后重试。"
     prices = pd.concat(frames, ignore_index=True)
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     prices.to_csv(PRICE_CACHE, index=False, encoding="utf-8-sig")
@@ -306,7 +240,7 @@ def load_prices(codes: Iterable[str], refresh: bool = False) -> Tuple[pd.DataFra
         prices = pd.read_csv(PRICE_CACHE)
         prices["date"] = pd.to_datetime(prices["date"], errors="coerce")
         return prices, None
-    return fetch_prices_from_ifind(codes)
+    return fetch_prices_from_akshare(codes)
 
 
 def max_drawdown(close: pd.Series) -> float:
@@ -706,44 +640,20 @@ def show_header() -> None:
     st.caption("先理解适合自己的ETF方向，再比较具体产品。仅用于学习和决策辅助，不构成投资建议。")
 
 
-def sidebar_controls() -> Tuple[bool, bool, bool]:
+def sidebar_controls() -> Tuple[bool, bool]:
     with st.sidebar:
         st.header("数据与模型")
-
-        st.subheader("iFinD 账号")
-        ifind_user = st.text_input(
-            "iFinD 账号",
-            value=st.session_state.get("ifind_username", os.environ.get("IFIND_USERNAME", "")),
-            placeholder="填入你的同花顺iFinD账号",
-        )
-        ifind_pass = st.text_input(
-            "iFinD 密码",
-            value=st.session_state.get("ifind_password", os.environ.get("IFIND_PASSWORD", "")),
-            type="password",
-            placeholder="填入你的同花顺iFinD密码",
-        )
-        if ifind_user:
-            st.session_state["ifind_username"] = ifind_user
-        if ifind_pass:
-            st.session_state["ifind_password"] = ifind_pass
-
-        has_credentials = credentials_available()
-        if has_credentials:
-            st.success("iFinD 账号已填写")
-        else:
-            st.info("未填写 iFinD 账号，将使用本地样本数据。没有账号也可以正常浏览。")
-
-        st.divider()
 
         if deepseek_available():
             st.success(f"已启用 AI 解释：{DEEPSEEK_MODEL}")
         else:
             st.info("未配置 DeepSeek，解释文案使用规则模板。")
 
-        refresh_prices = st.button("拉取最新 iFinD 行情", disabled=not has_credentials)
+        st.divider()
+        refresh_prices = st.button("拉取最新行情数据")
         refresh_profile = st.button("重建ETF静态缓存")
-        st.caption("免费版建议少量、低频调用 iFinD。")
-        return has_credentials, refresh_prices, refresh_profile
+        st.caption("行情数据来自东方财富，自动缓存到 data/cache。")
+        return refresh_prices, refresh_profile
 
 
 def render_profile_form() -> UserProfile:
@@ -932,7 +842,7 @@ def render_universe(df: pd.DataFrame) -> None:
 
 def main() -> None:
     show_header()
-    _, refresh_prices, refresh_profile = sidebar_controls()
+    refresh_prices, refresh_profile = sidebar_controls()
 
     profile = load_or_create_profile(refresh=refresh_profile)
     prices, price_warning = load_prices(profile["code"], refresh=refresh_prices)

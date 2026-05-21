@@ -1,4 +1,4 @@
-iFinDAPI==0.0.8
+akshare
 numpy
 pandas
 openpyxl
