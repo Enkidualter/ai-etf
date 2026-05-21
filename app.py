@@ -196,22 +196,30 @@ def load_or_create_profile(refresh: bool = False) -> pd.DataFrame:
     return df
 
 
-def fetch_prices_from_yfinance(codes: Iterable[str]) -> Tuple[pd.DataFrame, Optional[str]]:
+def fetch_prices_from_yfinance(
+    codes: Iterable[str],
+    progress_placeholder: Any = None,
+) -> Tuple[pd.DataFrame, Optional[str]]:
     try:
         import yfinance as yf
     except ImportError:
         return pd.DataFrame(), "未安装 yfinance，请执行 pip install yfinance。"
 
+    code_list = list(codes)
     frames: List[pd.DataFrame] = []
     errors: List[str] = []
-    for code in codes:
+    successes: List[str] = []
+
+    for i, code in enumerate(code_list):
+        if progress_placeholder is not None:
+            progress_placeholder.info(f"正在拉取 {i+1}/{len(code_list)}：{code} …")
         try:
             clean = str(code).split(".")[0]
             suffix = str(code).split(".")[-1].upper() if "." in str(code) else "SH"
             yf_code = clean + (".SS" if suffix == "SH" else ".SZ")
             hist = yf.Ticker(yf_code).history(period="1y")
             if hist.empty:
-                errors.append(f"{code}: 无数据")
+                errors.append(f"{code} → {yf_code}：无数据")
                 continue
             frame = pd.DataFrame({
                 "code": code,
@@ -219,25 +227,35 @@ def fetch_prices_from_yfinance(codes: Iterable[str]) -> Tuple[pd.DataFrame, Opti
                 "close": hist["Close"].values,
             }).dropna(subset=["date", "close"]).sort_values("date")
             frames.append(frame)
+            successes.append(f"{code}（{len(frame)}条）")
         except Exception as e:
-            errors.append(f"{code}: {e}")
+            errors.append(f"{code}：{type(e).__name__}: {e}")
             continue
 
     if not frames:
-        detail = "；".join(errors[:3])
-        return pd.DataFrame(), f"行情拉取失败（{detail}），将继续使用缓存数据。"
+        detail = "\n".join(errors)
+        return pd.DataFrame(), f"所有代码拉取失败：\n{detail}"
+
     prices = pd.concat(frames, ignore_index=True)
+    prices["fetch_time"] = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     prices.to_csv(PRICE_CACHE, index=False, encoding="utf-8-sig")
-    return prices, None
+    summary = f"成功：{', '.join(successes)}"
+    if errors:
+        summary += f"\n失败：{', '.join(errors)}"
+    return prices, None if not errors else summary
 
 
-def load_prices(codes: Iterable[str], refresh: bool = False) -> Tuple[pd.DataFrame, Optional[str]]:
+def load_prices(
+    codes: Iterable[str],
+    refresh: bool = False,
+    progress_placeholder: Any = None,
+) -> Tuple[pd.DataFrame, Optional[str]]:
     if PRICE_CACHE.exists() and not refresh:
         prices = pd.read_csv(PRICE_CACHE)
         prices["date"] = pd.to_datetime(prices["date"], errors="coerce")
         return prices, None
-    return fetch_prices_from_yfinance(codes)
+    return fetch_prices_from_yfinance(codes, progress_placeholder=progress_placeholder)
 
 
 def max_drawdown(close: pd.Series) -> float:
@@ -647,9 +665,9 @@ def sidebar_controls() -> Tuple[bool, bool]:
             st.info("未配置 DeepSeek，解释文案使用规则模板。")
 
         st.divider()
-        refresh_prices = st.button("拉取最新行情数据")
+        refresh_prices = st.button("🔄 拉取最新行情（Yahoo Finance）")
         refresh_profile = st.button("重建ETF静态缓存")
-        st.caption("行情数据来自东方财富，自动缓存到 data/cache。")
+        st.caption("行情数据来自 Yahoo Finance，自动缓存到 data/cache。")
         return refresh_prices, refresh_profile
 
 
@@ -837,23 +855,89 @@ def render_universe(df: pd.DataFrame) -> None:
     st.dataframe(display, use_container_width=True)
 
 
+def render_debug(profile: pd.DataFrame, prices: pd.DataFrame, df: pd.DataFrame) -> None:
+    st.subheader("调试信息")
+
+    # 缓存文件状态
+    st.markdown("#### 缓存文件状态")
+    c1, c2 = st.columns(2)
+    with c1:
+        if PROFILE_CACHE.exists():
+            mtime = pd.Timestamp(PROFILE_CACHE.stat().st_mtime, unit="s").strftime("%Y-%m-%d %H:%M:%S")
+            st.success(f"etf_sample_profile.csv 存在\n最后修改：{mtime}")
+        else:
+            st.error("etf_sample_profile.csv 不存在")
+    with c2:
+        if PRICE_CACHE.exists():
+            mtime = pd.Timestamp(PRICE_CACHE.stat().st_mtime, unit="s").strftime("%Y-%m-%d %H:%M:%S")
+            st.success(f"etf_sample_prices.csv 存在\n最后修改：{mtime}")
+        else:
+            st.error("etf_sample_prices.csv 不存在")
+
+    # 行情缓存中的更新时间（如果有）
+    if not prices.empty and "fetch_time" in prices.columns:
+        fetch_time = prices["fetch_time"].dropna().iloc[0] if prices["fetch_time"].notna().any() else "未知"
+        st.info(f"行情最近一次从 Yahoo Finance 拉取时间：{fetch_time}")
+    else:
+        st.info("行情来自缓存文件（未记录拉取时间，或尚未从 Yahoo Finance 拉取过）")
+
+    # 每只ETF行情点数
+    st.markdown("#### 各ETF行情数据点数")
+    if not prices.empty:
+        summary = prices.groupby("code").agg(
+            数据点数=("close", "count"),
+            最早日期=("date", "min"),
+            最新日期=("date", "max"),
+            最新收盘价=("close", "last"),
+        ).reset_index()
+        st.dataframe(summary, use_container_width=True)
+    else:
+        st.warning("暂无行情数据")
+
+    # 完整profile表
+    st.markdown("#### ETF基本信息（完整）")
+    st.dataframe(profile, use_container_width=True)
+
+    # 完整prices表（最近20条）
+    st.markdown("#### 行情缓存（最近20条）")
+    if not prices.empty:
+        st.dataframe(prices.sort_values("date", ascending=False).head(20), use_container_width=True)
+    else:
+        st.warning("暂无行情数据")
+
+    # 完整打分表
+    st.markdown("#### 综合打分表（完整）")
+    st.dataframe(df, use_container_width=True)
+
+
 def main() -> None:
     show_header()
     refresh_prices, refresh_profile = sidebar_controls()
 
     profile = load_or_create_profile(refresh=refresh_profile)
-    prices, price_warning = load_prices(profile["code"], refresh=refresh_prices)
-    df = add_metrics(profile, prices)
 
-    if price_warning:
-        st.warning(price_warning)
+    if refresh_prices:
+        progress_placeholder = st.empty()
+        with st.spinner("正在从 Yahoo Finance 拉取行情，请稍候…"):
+            prices, price_warning = load_prices(profile["code"], refresh=True, progress_placeholder=progress_placeholder)
+        progress_placeholder.empty()
+        if price_warning:
+            st.error(f"拉取结果：\n\n{price_warning}")
+        else:
+            st.success("行情拉取成功，已更新缓存！")
+    else:
+        prices, price_warning = load_prices(profile["code"], refresh=False)
+        if price_warning:
+            st.warning(price_warning)
+
+    df = add_metrics(profile, prices)
 
     default_user = UserProfile("我是新手", "低风险", "3年以上", "长期配置，慢慢积累", "我想先要一个稳一点的底座", 50000.0)
     user = st.session_state.get("user_profile", default_user)
     domains = recommend_domains(user)
 
-    tab_profile, tab_domain, tab_candidates, tab_detail, tab_data = st.tabs(
-        ["偏好问卷", "领域推荐", "ETF候选", "质量评估", "数据与术语"]
+    tab_profile, tab_domain, tab_candidates, tab_detail, tab_data, tab_debug = st.tabs(
+        ["偏好问卷", "领域推荐", "ETF候选", "质量评估", "数据与术语", "🔧 调试"]
     )
 
     with tab_profile:
@@ -872,7 +956,10 @@ def main() -> None:
     with tab_data:
         render_universe(df)
         render_terms()
-        st.caption("数据来源：本地Excel样本 + iFinD行情缓存。仅用于demo，不构成投资建议。")
+        st.caption("数据来源：本地Excel样本 + Yahoo Finance行情。仅用于demo，不构成投资建议。")
+
+    with tab_debug:
+        render_debug(profile, prices, df)
 
 
 if __name__ == "__main__":
