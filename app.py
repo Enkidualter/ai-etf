@@ -196,34 +196,27 @@ def load_or_create_profile(refresh: bool = False) -> pd.DataFrame:
     return df
 
 
-def fetch_prices_from_akshare(codes: Iterable[str]) -> Tuple[pd.DataFrame, Optional[str]]:
+def fetch_prices_from_yfinance(codes: Iterable[str]) -> Tuple[pd.DataFrame, Optional[str]]:
     try:
-        import akshare as ak
+        import yfinance as yf
     except ImportError:
-        return pd.DataFrame(), "未安装 akshare，请执行 pip install akshare。"
+        return pd.DataFrame(), "未安装 yfinance，请执行 pip install yfinance。"
 
-    start = (date.today() - timedelta(days=365)).strftime("%Y%m%d")
-    end = date.today().strftime("%Y%m%d")
     frames: List[pd.DataFrame] = []
-
     errors: List[str] = []
     for code in codes:
         try:
-            clean_code = str(code).split(".")[0]
-            df = ak.fund_etf_hist_em(
-                symbol=clean_code,
-                period="daily",
-                start_date=start,
-                end_date=end,
-                adjust="",
-            )
-            if df.empty:
+            clean = str(code).split(".")[0]
+            suffix = str(code).split(".")[-1].upper() if "." in str(code) else "SH"
+            yf_code = clean + (".SS" if suffix == "SH" else ".SZ")
+            hist = yf.Ticker(yf_code).history(period="1y")
+            if hist.empty:
                 errors.append(f"{code}: 无数据")
                 continue
             frame = pd.DataFrame({
                 "code": code,
-                "date": pd.to_datetime(df["日期"], errors="coerce"),
-                "close": pd.to_numeric(df["收盘"], errors="coerce"),
+                "date": pd.to_datetime(hist.index.tz_localize(None)),
+                "close": hist["Close"].values,
             }).dropna(subset=["date", "close"]).sort_values("date")
             frames.append(frame)
         except Exception as e:
@@ -232,7 +225,7 @@ def fetch_prices_from_akshare(codes: Iterable[str]) -> Tuple[pd.DataFrame, Optio
 
     if not frames:
         detail = "；".join(errors[:3])
-        return pd.DataFrame(), f"akshare 未返回可用数据（{detail}），请检查网络后重试。"
+        return pd.DataFrame(), f"行情拉取失败（{detail}），将继续使用缓存数据。"
     prices = pd.concat(frames, ignore_index=True)
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     prices.to_csv(PRICE_CACHE, index=False, encoding="utf-8-sig")
@@ -244,7 +237,7 @@ def load_prices(codes: Iterable[str], refresh: bool = False) -> Tuple[pd.DataFra
         prices = pd.read_csv(PRICE_CACHE)
         prices["date"] = pd.to_datetime(prices["date"], errors="coerce")
         return prices, None
-    return fetch_prices_from_akshare(codes)
+    return fetch_prices_from_yfinance(codes)
 
 
 def max_drawdown(close: pd.Series) -> float:

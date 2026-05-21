@@ -1,4 +1,4 @@
-akshare
+yfinance
 numpy
 pandas
 openpyxl
