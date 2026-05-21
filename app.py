@@ -53,6 +53,10 @@ AI_PROVIDERS: Dict[str, Dict[str, str]] = {
         "base_url": "https://api.siliconflow.cn/v1",
         "default_model": "Qwen/Qwen2.5-7B-Instruct",
     },
+    "Gemini (Google)": {
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "default_model": "gemini-2.0-flash",
+    },
 }
 
 
@@ -788,7 +792,18 @@ def render_profile_form() -> UserProfile:
         amount=amount,
     )
     st.session_state["user_profile"] = user
-    st.info(f"系统识别的风险层级：{risk_level}。这只用于推荐排序和风险提示，不代表正式风险测评。")
+
+    risk_color = {"低风险": "🟢", "中风险": "🟡", "高风险": "🔴"}.get(risk_level, "⚪")
+    if "不确定" not in risk_answer:
+        risk_driver = f'当前由"亏损感受"决定：你选了【{risk_answer}】。'
+    else:
+        risk_driver = '你选了"我不确定"，系统按经验和期限保守处理。'
+    hint = "不太能接受 -> 低风险 / 阶段性波动 -> 中风险 / 愿意承受较大波动 -> 高风险"
+    st.info(
+        f"{risk_color} 风险层级：{risk_level}\n\n"
+        f"{risk_driver}\n\n"
+        f"想改变风险层级，请修改上方【亏损感受】那道题。\n({hint})"
+    )
     return user
 
 
