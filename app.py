@@ -206,6 +206,7 @@ def fetch_prices_from_akshare(codes: Iterable[str]) -> Tuple[pd.DataFrame, Optio
     end = date.today().strftime("%Y%m%d")
     frames: List[pd.DataFrame] = []
 
+    errors: List[str] = []
     for code in codes:
         try:
             clean_code = str(code).split(".")[0]
@@ -217,6 +218,7 @@ def fetch_prices_from_akshare(codes: Iterable[str]) -> Tuple[pd.DataFrame, Optio
                 adjust="",
             )
             if df.empty:
+                errors.append(f"{code}: 无数据")
                 continue
             frame = pd.DataFrame({
                 "code": code,
@@ -224,11 +226,13 @@ def fetch_prices_from_akshare(codes: Iterable[str]) -> Tuple[pd.DataFrame, Optio
                 "close": pd.to_numeric(df["收盘"], errors="coerce"),
             }).dropna(subset=["date", "close"]).sort_values("date")
             frames.append(frame)
-        except Exception:
+        except Exception as e:
+            errors.append(f"{code}: {e}")
             continue
 
     if not frames:
-        return pd.DataFrame(), "akshare 未返回可用数据，请检查网络后重试。"
+        detail = "；".join(errors[:3])
+        return pd.DataFrame(), f"akshare 未返回可用数据（{detail}），请检查网络后重试。"
     prices = pd.concat(frames, ignore_index=True)
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     prices.to_csv(PRICE_CACHE, index=False, encoding="utf-8-sig")

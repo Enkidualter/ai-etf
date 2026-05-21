@@ -1,6 +1,3 @@
-# 缓存文件（会自动重新生成）
-data/cache/
-
 # Python 缓存
 __pycache__/
 *.pyc
