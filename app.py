@@ -593,10 +593,8 @@ def call_deepseek(payload: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]
         + json.dumps(to_jsonable(payload), ensure_ascii=False)
     )
     try:
-        response = requests.post(
-            f"{base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={
+        body = json.dumps(
+            {
                 "model": model,
                 "messages": [
                     {"role": "system", "content": system_prompt},
@@ -605,6 +603,15 @@ def call_deepseek(payload: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]
                 "temperature": 0.3,
                 "max_tokens": 500,
             },
+            ensure_ascii=False,
+        ).encode("utf-8")
+        response = requests.post(
+            f"{base_url}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json; charset=utf-8",
+            },
+            data=body,
             timeout=20,
         )
         response.raise_for_status()
