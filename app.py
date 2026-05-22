@@ -119,19 +119,31 @@ header[data-testid="stHeader"] {{
     width: 0 !important;
     overflow: hidden !important;
 }}
-/* Zero out the entire Streamlit container chain */
-.stApp, section.main, .main {{
+/* Full app background */
+.stApp, [data-testid="stApp"] {{
     background: {v['bg_page']} !important;
-    padding: 0 !important;
-    margin: 0 !important;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif !important;
 }}
-.main .block-container,
-.main .block-container > div,
-.main .block-container > div > div[data-testid="stVerticalBlock"] {{
+/* stMain section (parent of block-container in modern Streamlit) */
+section[data-testid="stMain"], [data-testid="stMain"] {{
+    padding: 0 !important;
+    background: {v['bg_page']} !important;
+}}
+/* THE BLOCK CONTAINER — must target by its actual class/testid,
+   NOT ".main .block-container" (parent has data-testid, not class "main") */
+[data-testid="stMainBlockContainer"],
+.stMainBlockContainer,
+div.block-container {{
     padding: 0 !important;
     margin: 0 !important;
     max-width: 100% !important;
+    background: {v['bg_page']} !important;
+}}
+/* Inner vertical block — zero gap so anchors add nothing */
+[data-testid="stMainBlockContainer"] > div,
+[data-testid="stMainBlockContainer"] > div > div[data-testid="stVerticalBlock"] {{
+    padding: 0 !important;
+    margin: 0 !important;
     gap: 0 !important;
 }}
 /* Top-level columns row: no gap, stretch to full height */
