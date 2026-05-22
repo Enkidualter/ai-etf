@@ -21,7 +21,6 @@ PROFILE_CACHE = CACHE_DIR / "etf_sample_profile.csv"
 PRICE_CACHE   = CACHE_DIR / "etf_sample_prices.csv"
 SAMPLE_SIZE   = 10
 CST           = "Asia/Shanghai"
-SIDEBAR_W     = 252   # px
 
 DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
 DEEPSEEK_MODEL    = os.environ.get("DEEPSEEK_MODEL",    "deepseek-chat")
@@ -77,7 +76,8 @@ def build_css(dark: bool) -> str:
         )
 
     return f"""<style>
-/* ── Always-open sidebar: hide all collapse/expand controls ── */
+/* ── Kill native sidebar & chrome ── */
+section[data-testid="stSidebar"],
 [data-testid="stSidebarCollapseButton"],
 [data-testid="collapsedControl"],
 button[title*="sidebar"],
@@ -85,20 +85,6 @@ button[aria-label*="sidebar"],
 button[aria-label*="Sidebar"] {{
     display: none !important;
 }}
-
-/* ── Sidebar fixed width ── */
-section[data-testid="stSidebar"] {{
-    width: {SIDEBAR_W}px !important;
-    min-width: {SIDEBAR_W}px !important;
-    background: {v['bg_sidebar']} !important;
-    border-right: 1px solid {v['border_s']} !important;
-}}
-section[data-testid="stSidebar"] > div:first-child {{
-    width: {SIDEBAR_W}px !important;
-    padding: 1.5rem 1rem !important;
-}}
-
-/* ── Hide chrome ── */
 #MainMenu, footer, [data-testid="stToolbar"],
 [data-testid="stDecoration"] {{
     display: none !important;
@@ -111,16 +97,38 @@ header[data-testid="stHeader"] {{
     min-height: 0 !important;
 }}
 
-/* ── App background ── */
+/* ── Full-width layout, zero container padding ── */
 .stApp {{
     background: {v['bg_page']} !important;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif !important;
 }}
-
-/* ── Main content padding ── */
 .main .block-container {{
-    padding-top: 2rem !important;
+    padding: 0 !important;
     max-width: 100% !important;
+}}
+/* Gap between columns */
+div[data-testid="stHorizontalBlock"] {{
+    gap: 0 !important;
+    align-items: stretch !important;
+}}
+
+/* ── Sidebar column (identified by #sb-col-anchor inside it) ── */
+div[data-testid="stColumn"]:has(#sb-col-anchor) {{
+    background: {v['bg_sidebar']} !important;
+    border-right: 1px solid {v['border_s']} !important;
+    padding: 1.5rem 1.2rem !important;
+    min-height: 100vh !important;
+    flex-shrink: 0 !important;
+}}
+/* Sticky inner wrapper so controls stay visible on scroll */
+div[data-testid="stColumn"]:has(#sb-col-anchor) > div[data-testid="stVerticalBlock"] {{
+    position: sticky !important;
+    top: 1rem !important;
+}}
+
+/* ── Main content column ── */
+div[data-testid="stColumn"]:has(#main-col-anchor) {{
+    padding: 1.5rem 2rem 2rem 1.5rem !important;
 }}
 
 /* ── Tabs ── */
@@ -843,40 +851,40 @@ def price_chart_fig(price_df: pd.DataFrame) -> None:
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar":False})
 
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
-def sidebar_controls() -> Tuple[bool, bool]:
-    with st.sidebar:
-        # Theme toggle
-        st.toggle("🌙  深色模式", value=st.session_state.get("dark_mode", True), key="dark_mode")
-        st.markdown("<hr style='margin:10px 0'>", unsafe_allow_html=True)
+# ── Sidebar panel (column-based, no st.sidebar) ───────────────────────────────
+def render_sidebar_panel() -> Tuple[bool, bool]:
+    """Render sidebar controls into whatever column/container is active."""
+    # Theme toggle
+    st.toggle("🌙  深色模式", value=st.session_state.get("dark_mode", True), key="dark_mode")
+    st.markdown("<hr style='margin:10px 0'>", unsafe_allow_html=True)
 
-        st.markdown('<p class="sb-label">AI 解释引擎</p>', unsafe_allow_html=True)
-        selected = st.selectbox("服务商", list(AI_PROVIDERS.keys()), index=0,
-                                key="ai_provider", label_visibility="collapsed")
-        cfg = AI_PROVIDERS[selected]
+    st.markdown('<p class="sb-label">AI 解释引擎</p>', unsafe_allow_html=True)
+    selected = st.selectbox("服务商", list(AI_PROVIDERS.keys()), index=0,
+                            key="ai_provider", label_visibility="collapsed")
+    cfg = AI_PROVIDERS[selected]
 
-        key_val = st.text_input("API Key", type="password", placeholder="填入 API Key",
-            value=st.session_state.get("ai_api_key", os.environ.get("DEEPSEEK_API_KEY","")),
-            key="_ai_key_input")
-        st.session_state["ai_api_key"] = key_val
+    key_val = st.text_input("API Key", type="password", placeholder="填入 API Key",
+        value=st.session_state.get("ai_api_key", os.environ.get("DEEPSEEK_API_KEY","")),
+        key="_ai_key_input")
+    st.session_state["ai_api_key"] = key_val
 
-        mdl_val = st.text_input("模型", placeholder=cfg["default_model"],
-            value=st.session_state.get("ai_model","") or cfg["default_model"],
-            key="_ai_model_input")
-        st.session_state["ai_model"]    = mdl_val or cfg["default_model"]
-        st.session_state["ai_base_url"] = cfg["base_url"]
+    mdl_val = st.text_input("模型", placeholder=cfg["default_model"],
+        value=st.session_state.get("ai_model","") or cfg["default_model"],
+        key="_ai_model_input")
+    st.session_state["ai_model"]    = mdl_val or cfg["default_model"]
+    st.session_state["ai_base_url"] = cfg["base_url"]
 
-        if ai_available():
-            st.success(f"✓  {st.session_state['ai_model']}")
-        else:
-            st.caption("未填写 API Key，使用规则模板")
+    if ai_available():
+        st.success(f"✓  {st.session_state['ai_model']}")
+    else:
+        st.caption("未填写 API Key，使用规则模板")
 
-        st.markdown("<hr style='margin:10px 0'>", unsafe_allow_html=True)
-        st.markdown('<p class="sb-label">行情数据</p>', unsafe_allow_html=True)
-        rp = st.button("拉取最新行情", use_container_width=True)
-        rr = st.button("重建静态缓存", use_container_width=True)
-        st.caption("Yahoo Finance · 自动缓存")
-        return rp, rr
+    st.markdown("<hr style='margin:10px 0'>", unsafe_allow_html=True)
+    st.markdown('<p class="sb-label">行情数据</p>', unsafe_allow_html=True)
+    rp = st.button("拉取最新行情", use_container_width=True)
+    rr = st.button("重建静态缓存", use_container_width=True)
+    st.caption("Yahoo Finance · 自动缓存")
+    return rp, rr
 
 
 # ── Tab: 偏好问卷 ─────────────────────────────────────────────────────────────
@@ -1084,51 +1092,60 @@ def render_debug(profile, prices, df):
 def main() -> None:
     st.set_page_config(
         page_title="ETF 投资助手", layout="wide", page_icon="📊",
-        initial_sidebar_state="expanded",
+        initial_sidebar_state="collapsed",   # native sidebar stays hidden
     )
 
-    # Sidebar first (sets dark_mode in session_state via toggle)
-    refresh_prices, refresh_profile = sidebar_controls()
-
-    # Inject CSS based on current theme
+    # Inject CSS using current theme (dark toggle will re-run on change)
     dark = st.session_state.get("dark_mode", True)
     st.markdown(build_css(dark), unsafe_allow_html=True)
 
-    # Data
-    profile = load_or_create_profile(refresh=refresh_profile)
-    if refresh_prices:
-        prog = st.empty()
-        with st.spinner("正在从 Yahoo Finance 拉取行情…"):
-            prices, warn = load_prices(profile["code"], refresh=True, progress_placeholder=prog)
-        prog.empty()
-        if warn: st.error(f"部分拉取失败：{warn}")
-        else: st.success("行情更新成功")
-    else:
-        prices, warn = load_prices(profile["code"], refresh=False)
-        if warn: st.warning(warn)
+    # ── Two-column layout: [sidebar panel | main content] ──
+    c_sb, c_main = st.columns([1, 4], gap="small")
 
-    df      = add_metrics(profile, prices)
-    default = UserProfile("我是新手","低风险","3年以上","长期配置，慢慢积累","我想先要一个稳一点的底座",50000.0)
-    user    = st.session_state.get("user_profile", default)
-    domains = recommend_domains(user)
+    with c_sb:
+        # Anchor element lets CSS target this column via :has(#sb-col-anchor)
+        st.markdown('<div id="sb-col-anchor"></div>', unsafe_allow_html=True)
+        refresh_prices, refresh_profile = render_sidebar_panel()
 
-    # Page header
-    st.markdown(
-        '<div style="padding:0 0 20px">'
-        '<div style="font-size:1.65rem;font-weight:800;letter-spacing:-0.02em">ETF 投资助手</div>'
-        '<div style="font-size:0.82rem;margin-top:4px;opacity:0.55">'
-        '基于规则评分 + AI 解释 · 仅用于学习，不构成投资建议</div></div>',
-        unsafe_allow_html=True)
+    with c_main:
+        # Anchor element for right-column padding CSS
+        st.markdown('<div id="main-col-anchor"></div>', unsafe_allow_html=True)
 
-    tab_a, tab_b, tab_c, tab_d, tab_e, tab_f = st.tabs(
-        ["偏好问卷","方向推荐","ETF 对比","质量评估","数据 & 术语","🔧 调试"])
+        # Data loading
+        profile = load_or_create_profile(refresh=refresh_profile)
+        if refresh_prices:
+            prog = st.empty()
+            with st.spinner("正在从 Yahoo Finance 拉取行情…"):
+                prices, warn = load_prices(profile["code"], refresh=True, progress_placeholder=prog)
+            prog.empty()
+            if warn: st.error(f"部分拉取失败：{warn}")
+            else: st.success("行情更新成功")
+        else:
+            prices, warn = load_prices(profile["code"], refresh=False)
+            if warn: st.warning(warn)
 
-    with tab_a: user    = render_profile_form();         domains = recommend_domains(user)
-    with tab_b: domains = render_domain_recommendations(user)
-    with tab_c: render_candidates(df, user, domains)
-    with tab_d: render_quality_detail(df, prices, domains)
-    with tab_e: render_universe_and_terms(df)
-    with tab_f: render_debug(profile, prices, df)
+        df      = add_metrics(profile, prices)
+        default = UserProfile("我是新手","低风险","3年以上","长期配置，慢慢积累","我想先要一个稳一点的底座",50000.0)
+        user    = st.session_state.get("user_profile", default)
+        domains = recommend_domains(user)
+
+        # Page header
+        st.markdown(
+            '<div style="padding:0 0 20px">'
+            '<div style="font-size:1.65rem;font-weight:800;letter-spacing:-0.02em">ETF 投资助手</div>'
+            '<div style="font-size:0.82rem;margin-top:4px;opacity:0.55">'
+            '基于规则评分 + AI 解释 · 仅用于学习，不构成投资建议</div></div>',
+            unsafe_allow_html=True)
+
+        tab_a, tab_b, tab_c, tab_d, tab_e, tab_f = st.tabs(
+            ["偏好问卷","方向推荐","ETF 对比","质量评估","数据 & 术语","🔧 调试"])
+
+        with tab_a: user    = render_profile_form();         domains = recommend_domains(user)
+        with tab_b: domains = render_domain_recommendations(user)
+        with tab_c: render_candidates(df, user, domains)
+        with tab_d: render_quality_detail(df, prices, domains)
+        with tab_e: render_universe_and_terms(df)
+        with tab_f: render_debug(profile, prices, df)
 
 
 if __name__ == "__main__":
