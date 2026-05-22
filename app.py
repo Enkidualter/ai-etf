@@ -62,21 +62,32 @@ def build_css(dark: bool) -> str:
             chart_line="#4f8ef7", chart_fill="rgba(79,142,247,0.08)",
         )
     else:
+        # Warm stone palette — based on Tailwind Stone scale
         v = dict(
-            bg_page="#f5f6f8", bg_sidebar="#ffffff", bg_card="#ffffff",
-            bg_card2="#f9fafb", border_s="#f0f1f3", border_c="#e4e6ea",
-            text_h="#111827", text_p="#1f2937", text_sec="#4b5563",
-            text_m="#9ca3af", text_d="#d1d5db",
-            accent="#2563eb", accent_btn="#2563eb",
-            card_shadow="0 1px 3px rgba(0,0,0,0.07),0 1px 2px rgba(0,0,0,0.04)",
-            badge_bg="rgba(37,99,235,0.07)", badge_bdr="rgba(37,99,235,0.2)",
-            chart_bg="#ffffff", chart_paper="#f5f6f8",
-            chart_font="#9ca3af", chart_grid="#f0f1f3",
-            chart_line="#2563eb", chart_fill="rgba(37,99,235,0.05)",
+            bg_page="#f6f4f1",        # warm off-white 米白
+            bg_sidebar="#fefcfa",     # near-white warm
+            bg_card="#ffffff",        # pure white cards
+            bg_card2="#f3f1ee",       # slightly deeper warm
+            border_s="#ece8e2",       # warm separator
+            border_c="#ddd8d0",       # warm border
+            text_h="#1c1917",         # Stone-900 deep charcoal
+            text_p="#292524",         # Stone-800 body
+            text_sec="#57534e",       # Stone-600 secondary
+            text_m="#a8a29e",         # Stone-400 muted
+            text_d="#d6d3d1",         # Stone-300 decorative
+            accent="#2563eb",
+            accent_btn="#2563eb",
+            card_shadow="0 1px 3px rgba(0,0,0,0.06),0 2px 8px rgba(0,0,0,0.04)",
+            badge_bg="rgba(37,99,235,0.07)", badge_bdr="rgba(37,99,235,0.18)",
+            chart_bg="#ffffff", chart_paper="#f6f4f1",
+            chart_font="#a8a29e", chart_grid="#ece8e2",
+            chart_line="#2563eb", chart_fill="rgba(37,99,235,0.06)",
         )
 
     return f"""<style>
-/* ── Kill native sidebar & chrome ── */
+/* ═══════════════════════════════════════════════════
+   1. KILL NATIVE SIDEBAR & CHROME
+═══════════════════════════════════════════════════ */
 section[data-testid="stSidebar"],
 [data-testid="stSidebarCollapseButton"],
 [data-testid="collapsedControl"],
@@ -95,43 +106,161 @@ header[data-testid="stHeader"] {{
     box-shadow: none !important;
     height: 0 !important;
     min-height: 0 !important;
+    overflow: hidden !important;
 }}
 
-/* ── Full-width layout, zero container padding ── */
-.stApp {{
+/* ═══════════════════════════════════════════════════
+   2. LAYOUT — flush sidebar, zero top gap
+═══════════════════════════════════════════════════ */
+/* Anchor divs must not add any height */
+#sb-col-anchor, #main-col-anchor {{
+    display: none !important;
+    height: 0 !important;
+    width: 0 !important;
+    overflow: hidden !important;
+}}
+/* Zero out the entire Streamlit container chain */
+.stApp, section.main, .main {{
     background: {v['bg_page']} !important;
+    padding: 0 !important;
+    margin: 0 !important;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif !important;
 }}
-.main .block-container {{
+.main .block-container,
+.main .block-container > div,
+.main .block-container > div > div[data-testid="stVerticalBlock"] {{
     padding: 0 !important;
+    margin: 0 !important;
     max-width: 100% !important;
+    gap: 0 !important;
 }}
-/* Gap between columns */
-div[data-testid="stHorizontalBlock"] {{
+/* Top-level columns row: no gap, stretch to full height */
+div[data-testid="stHorizontalBlock"]:has(#sb-col-anchor) {{
     gap: 0 !important;
     align-items: stretch !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    min-height: 100vh !important;
 }}
 
-/* ── Sidebar column (identified by #sb-col-anchor inside it) ── */
+/* ── Sidebar panel column ── */
 div[data-testid="stColumn"]:has(#sb-col-anchor) {{
     background: {v['bg_sidebar']} !important;
     border-right: 1px solid {v['border_s']} !important;
     padding: 1.5rem 1.2rem !important;
-    min-height: 100vh !important;
     flex-shrink: 0 !important;
 }}
-/* Sticky inner wrapper so controls stay visible on scroll */
 div[data-testid="stColumn"]:has(#sb-col-anchor) > div[data-testid="stVerticalBlock"] {{
     position: sticky !important;
-    top: 1rem !important;
+    top: 1.5rem !important;
+    gap: 0.5rem !important;
 }}
 
 /* ── Main content column ── */
 div[data-testid="stColumn"]:has(#main-col-anchor) {{
-    padding: 1.5rem 2rem 2rem 1.5rem !important;
+    padding: 1.8rem 2.2rem 2.5rem 1.8rem !important;
+    background: {v['bg_page']} !important;
 }}
 
-/* ── Tabs ── */
+/* ═══════════════════════════════════════════════════
+   3. GLOBAL TEXT — override base=dark bleed-through
+═══════════════════════════════════════════════════ */
+body, .stApp {{
+    color: {v['text_p']} !important;
+}}
+/* All markdown / text containers */
+[data-testid="stMarkdownContainer"],
+[data-testid="stMarkdownContainer"] p,
+[data-testid="stMarkdownContainer"] span,
+[data-testid="stMarkdownContainer"] li,
+[data-testid="stMarkdownContainer"] a,
+[data-testid="stText"] p,
+.stMarkdown, .stMarkdown p {{
+    color: {v['text_p']} !important;
+    font-family: inherit !important;
+}}
+h1, h2, h3, h4, h5, h6 {{
+    color: {v['text_h']} !important;
+    font-family: inherit !important;
+}}
+/* Caption containers */
+[data-testid="stCaptionContainer"] p,
+[data-testid="stCaption"] p,
+small {{ color: {v['text_m']} !important; }}
+
+/* ═══════════════════════════════════════════════════
+   4. INPUTS — selectbox, text, number
+═══════════════════════════════════════════════════ */
+/* Container */
+.stSelectbox > div[data-baseweb="select"] > div,
+.stSelectbox [data-baseweb="select"] > div {{
+    background: {v['bg_card']} !important;
+    border-color: {v['border_c']} !important;
+    border-radius: 8px !important;
+}}
+/* Selected value text */
+.stSelectbox [data-baseweb="select"] [data-testid="stMarkdownContainer"] p,
+.stSelectbox [data-baseweb="select"] > div > div,
+.stSelectbox [data-baseweb="select"] > div > div > div {{
+    color: {v['text_p']} !important;
+    background: transparent !important;
+}}
+/* Dropdown options list (rendered in portal) */
+[data-baseweb="popover"] [data-baseweb="menu"],
+[data-baseweb="popover"] ul {{
+    background: {v['bg_card']} !important;
+    border: 1px solid {v['border_c']} !important;
+}}
+[data-baseweb="popover"] li,
+[data-baseweb="option"] {{
+    background: {v['bg_card']} !important;
+    color: {v['text_p']} !important;
+}}
+[data-baseweb="option"]:hover,
+[data-baseweb="option"][aria-selected="true"] {{
+    background: {v['bg_card2']} !important;
+    color: {v['text_h']} !important;
+}}
+/* Text + number inputs */
+.stTextInput > div > div,
+.stTextInput > div > div > input,
+[data-testid="stNumberInput"] > div > div,
+[data-testid="stNumberInput"] input {{
+    background: {v['bg_card']} !important;
+    border-color: {v['border_c']} !important;
+    border-radius: 8px !important;
+    color: {v['text_p']} !important;
+}}
+input::placeholder {{ color: {v['text_m']} !important; }}
+/* Number input buttons */
+[data-testid="stNumberInput"] button {{
+    color: {v['text_sec']} !important;
+    background: transparent !important;
+}}
+/* All widget labels */
+label,
+[data-testid="stWidgetLabel"] p,
+[data-testid="stWidgetLabel"] span,
+.stSelectbox label, .stTextInput label,
+[data-testid="stNumberInput"] label,
+[data-testid="stToggle"] label,
+[data-testid="stToggle"] p {{
+    color: {v['text_sec']} !important;
+    font-size: 0.82rem !important;
+    font-family: inherit !important;
+}}
+
+/* ═══════════════════════════════════════════════════
+   5. TOGGLE
+═══════════════════════════════════════════════════ */
+[data-testid="stToggle"] span {{ background: {v['border_c']} !important; }}
+[data-testid="stToggle"] input:checked + span {{
+    background: {v['accent_btn']} !important;
+}}
+
+/* ═══════════════════════════════════════════════════
+   6. TABS
+═══════════════════════════════════════════════════ */
 .stTabs [data-baseweb="tab-list"] {{
     gap: 0;
     border-bottom: 1px solid {v['border_s']};
@@ -141,7 +270,7 @@ div[data-testid="stColumn"]:has(#main-col-anchor) {{
 }}
 .stTabs [data-baseweb="tab"] {{
     background: transparent !important;
-    color: {v['text_m']};
+    color: {v['text_m']} !important;
     height: 40px;
     padding: 0 18px;
     font-size: 0.875rem;
@@ -158,36 +287,40 @@ div[data-testid="stColumn"]:has(#main-col-anchor) {{
 }}
 .stTabs [data-baseweb="tab-panel"] {{ padding-top: 24px; }}
 
-/* ── Buttons ── */
+/* ═══════════════════════════════════════════════════
+   7. BUTTONS
+═══════════════════════════════════════════════════ */
 div[data-testid="stButton"] > button {{
-    background: {v['bg_card']};
-    color: {v['text_sec']};
-    border: 1px solid {v['border_c']};
+    background: {v['bg_card']} !important;
+    color: {v['text_sec']} !important;
+    border: 1px solid {v['border_c']} !important;
     border-radius: 8px;
     font-size: 0.875rem;
     font-family: inherit !important;
     transition: all 0.15s cubic-bezier(0.4,0,0.2,1);
 }}
 div[data-testid="stButton"] > button:hover {{
-    border-color: {v['accent']};
-    color: {v['accent']};
+    border-color: {v['accent']} !important;
+    color: {v['accent']} !important;
     transform: translateY(-1px);
 }}
-div[data-testid="stButton"] > button[kind="primary"] {{
-    background: {v['accent_btn']};
-    color: #fff;
-    border: none;
+div[data-testid="stButton"] > button[kind="primary"],
+div[data-testid="stButton"] > button[kind="primary"]:hover {{
+    background: {v['accent_btn']} !important;
+    color: #fff !important;
+    border: none !important;
     font-weight: 600;
-    box-shadow: 0 1px 4px rgba(37,99,235,0.3);
+    box-shadow: 0 1px 4px rgba(37,99,235,0.3) !important;
 }}
 div[data-testid="stButton"] > button[kind="primary"]:hover {{
-    background: #1d4ed8;
-    color: #fff;
+    background: #1d4ed8 !important;
+    box-shadow: 0 4px 14px rgba(37,99,235,0.4) !important;
     transform: translateY(-1px);
-    box-shadow: 0 4px 14px rgba(37,99,235,0.4);
 }}
 
-/* ── Metrics ── */
+/* ═══════════════════════════════════════════════════
+   8. METRICS
+═══════════════════════════════════════════════════ */
 [data-testid="stMetricValue"] {{
     font-size: 1.4rem !important;
     font-weight: 700 !important;
@@ -199,34 +332,13 @@ div[data-testid="stButton"] > button[kind="primary"]:hover {{
     text-transform: uppercase;
     letter-spacing: 0.06em;
 }}
-
-/* ── Inputs ── */
-.stSelectbox > div > div {{
-    background: {v['bg_card']} !important;
-    border-color: {v['border_c']} !important;
-    border-radius: 8px !important;
-    color: {v['text_p']} !important;
-}}
-.stTextInput > div > div > input,
-[data-testid="stNumberInput"] input {{
-    background: {v['bg_card']} !important;
-    border-color: {v['border_c']} !important;
-    border-radius: 8px !important;
-    color: {v['text_p']} !important;
-}}
-.stSelectbox label, .stTextInput label,
-[data-testid="stNumberInput"] label {{
-    color: {v['text_sec']} !important;
-    font-size: 0.82rem !important;
+[data-testid="stMetricDelta"] {{
+    font-size: 0.8rem !important;
 }}
 
-/* ── Toggle ── */
-[data-testid="stToggle"] span {{ background: {v['border_c']} !important; }}
-[data-testid="stToggle"] input:checked + span {{
-    background: {v['accent_btn']} !important;
-}}
-
-/* ── Expander ── */
+/* ═══════════════════════════════════════════════════
+   9. EXPANDER
+═══════════════════════════════════════════════════ */
 details > summary {{
     background: {v['bg_card']} !important;
     border: 1px solid {v['border_c']} !important;
@@ -245,20 +357,30 @@ details > div {{
     border-top: none !important;
     border-radius: 0 0 8px 8px !important;
     padding: 16px !important;
+    color: {v['text_p']} !important;
 }}
 
-/* ── Misc ── */
-.stAlert {{ border-radius: 10px !important; }}
+/* ═══════════════════════════════════════════════════
+   10. ALERTS
+═══════════════════════════════════════════════════ */
+.stAlert, [data-testid="stAlert"] {{ border-radius: 10px !important; }}
+[data-testid="stAlert"] p {{ color: inherit !important; }}
+
+/* ═══════════════════════════════════════════════════
+   11. MISC
+═══════════════════════════════════════════════════ */
 hr {{ border-color: {v['border_s']} !important; margin: 1rem 0 !important; }}
 [data-testid="stDataFrame"] {{ border-radius: 10px; overflow: hidden; }}
-h1, h2, h3, h4 {{ color: {v['text_h']} !important; font-family: inherit !important; }}
-p, [data-testid="stMarkdownContainer"] p {{
+[data-testid="stDataFrame"] * {{ color: {v['text_p']} !important; }}
+.stMarkdown code {{
+    background: {v['bg_card2']} !important;
     color: {v['text_sec']} !important;
-    font-family: inherit !important;
+    border-radius: 4px;
 }}
-[data-testid="stCaption"] {{ color: {v['text_m']} !important; }}
-.stMarkdown code {{ background: {v['bg_card2']} !important; border-radius: 4px; }}
 
+/* ═══════════════════════════════════════════════════
+   12. CUSTOM COMPONENTS
+═══════════════════════════════════════════════════ */
 /* ── Card ── */
 .card {{
     background: {v['bg_card']};
@@ -271,7 +393,7 @@ p, [data-testid="stMarkdownContainer"] p {{
 .card:hover {{ transform: translateY(-2px); }}
 .card--accent {{ border-color: {v['accent_btn']} !important; }}
 
-/* ETF card internals */
+/* ── ETF card ── */
 .etf-name {{ font-size: 0.95rem; font-weight: 600; color: {v['text_h']}; margin-bottom: 4px; }}
 .etf-meta {{ color: {v['text_m']}; font-size: 0.75rem; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }}
 .etf-score {{
@@ -287,7 +409,7 @@ p, [data-testid="stMarkdownContainer"] p {{
 .etf-lbl {{ color: {v['text_d']}; font-size: 0.62rem; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 3px; }}
 .etf-val {{ color: {v['text_p']}; font-size: 0.82rem; font-weight: 500; }}
 
-/* Match tag */
+/* ── Match tag ── */
 .mtag {{
     display: inline-flex; align-items: center;
     background: {v['badge_bg']}; color: {v['accent']};
@@ -296,27 +418,28 @@ p, [data-testid="stMarkdownContainer"] p {{
     border: 1px solid {v['badge_bdr']};
 }}
 
-/* Domain card */
+/* ── Domain card ── */
 .domain-card {{ padding: 18px; height: 100%; }}
 
-/* Section title */
+/* ── Section title ── */
 .stitle {{ margin: 0 0 20px 0; }}
 .stitle-h {{ margin: 0; font-size: 1.15rem; font-weight: 700; color: {v['text_h']}; letter-spacing: -0.01em; }}
 .stitle-s {{ margin: 4px 0 0; font-size: 0.8rem; color: {v['text_m']}; }}
 
-/* Sidebar labels */
+/* ── Sidebar labels ── */
 .sb-label {{
     color: {v['text_m']}; font-size: 0.65rem;
     text-transform: uppercase; letter-spacing: .08em;
     margin-bottom: 6px; margin-top: 2px;
+    display: block;
 }}
 
-/* Risk flag row */
+/* ── Risk flag row ── */
 .flag-row {{ display: flex; gap: 8px; align-items: flex-start; margin-bottom: 8px; }}
 .flag-icon {{ color: #f59e0b; flex-shrink: 0; margin-top: 1px; }}
 .flag-text {{ color: {v['text_sec']}; font-size: 0.84rem; line-height: 1.5; }}
 
-/* Score bar */
+/* ── Score bar ── */
 .sbar-row {{ margin-bottom: 12px; }}
 .sbar-hd {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }}
 .sbar-lbl {{ color: {v['text_sec']}; font-size: 0.82rem; }}
@@ -325,7 +448,7 @@ p, [data-testid="stMarkdownContainer"] p {{
 .sbar-track {{ background: {v['border_s']}; border-radius: 99px; height: 5px; overflow: hidden; }}
 .sbar-fill {{ height: 100%; border-radius: 99px; }}
 
-/* Term card */
+/* ── Term card ── */
 .term-card {{
     background: {v['bg_card']}; border: 1px solid {v['border_c']};
     border-radius: 10px; padding: 13px 15px; margin-bottom: 8px;
@@ -336,7 +459,6 @@ p, [data-testid="stMarkdownContainer"] p {{
 .term-desc  {{ color: {v['text_m']}; font-size: 0.8rem; line-height: 1.55; }}
 </style>
 
-<!-- Store chart colors for Python to read -->
 <script>
 window._chartColors = {{
     plot_bg:    "{v['chart_bg']}",
@@ -1100,7 +1222,7 @@ def main() -> None:
     st.markdown(build_css(dark), unsafe_allow_html=True)
 
     # ── Two-column layout: [sidebar panel | main content] ──
-    c_sb, c_main = st.columns([1, 4], gap="small")
+    c_sb, c_main = st.columns([1, 4])
 
     with c_sb:
         # Anchor element lets CSS target this column via :has(#sb-col-anchor)
